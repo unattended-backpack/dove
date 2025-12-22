@@ -1,0 +1,22 @@
+[package]
+name = "dove"
+version = "0.1.0"
+edition = "2021"
+authors = ["Tim Clancy <tim-clancy.eth>"]
+license = "LicenseRef-VPL WITH AGPL-3.0-only"
+description = "An opinionated Solidity code formatter"
+
+[lib]
+name = "dove"
+path = "src/lib.rs"
+
+[[bin]]
+name = "dove"
+path = "src/main.rs"
+
+[dependencies]
+solang-parser = "0.3"
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+insta = "1.34"
