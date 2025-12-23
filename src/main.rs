@@ -25,7 +25,7 @@ fn print_help(program: &str) {
     println!();
     println!("Commands:");
     println!("  preen <file>  Format a Solidity file, preening it into shape.");
-    println!("  peck <file>   Extract and display information from a Solidity file.");
+    println!("  peck <file>   Extract an interface from a Solidity file.");
     println!("  sing          Output a boilerplate smart contract template.");
     println!("  help          Show this help message.");
 }

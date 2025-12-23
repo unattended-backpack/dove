@@ -40,6 +40,7 @@ use std::fmt;
 pub mod ir_builder;
 pub mod collector;
 pub mod printer;
+pub mod peck;
 
 use crate::printer::Printer;
 
@@ -323,24 +324,56 @@ pub fn format_solidity_with_config<S: AsRef<str>, C: AsRef<FormatConfig>>(
     Ok(printer.print(&ir))
 }
 
-/// Extract and display information from Solidity source code.
+/// Extract the public interface from Solidity source code.
 ///
-/// The `peck` command analyzes Solidity source code and extracts structured
-/// information in a specific output format.
+/// The `peck` command analyzes Solidity source code and extracts the public
+/// interface, suitable for generating a Solidity interface file.
+///
+/// This transformation:
+/// - Changes `contract X` to `interface IX`
+/// - Transforms `@title X` to `@title X Interface`
+/// - Converts `@custom:param` to `@param` and `@custom:return` to `@return`
+/// - Filters out events and modifiers
+/// - Converts public constants/mappings to getter function signatures
+/// - Converts public/external functions to external signatures without bodies
 ///
 /// # Arguments
 ///
-/// * `source` - Solidity source code to analyze
+/// * `source` - Solidity source code to extract interface from
 ///
 /// # Returns
 ///
-/// Extracted information as a formatted string, or an error if parsing fails.
+/// The extracted interface as formatted Solidity code, or an error if parsing fails.
 ///
 /// # Errors
 ///
 /// Returns [`FormatError::ParseError`] if the source code contains syntax errors.
 pub fn peck_solidity<S: AsRef<str>>(source: S) -> Result<String, FormatError> {
+    peck_solidity_with_config(source, FormatConfig::default())
+}
+
+/// Extract the public interface from Solidity source code with custom configuration.
+///
+/// See [`peck_solidity`] for details on the transformation.
+///
+/// # Arguments
+///
+/// * `source` - Solidity source code to extract interface from
+/// * `config` - Configuration options for formatting behavior
+///
+/// # Returns
+///
+/// The extracted interface as formatted Solidity code, or an error if parsing fails.
+///
+/// # Errors
+///
+/// Returns [`FormatError::ParseError`] if the source code contains syntax errors.
+pub fn peck_solidity_with_config<S: AsRef<str>, C: AsRef<FormatConfig>>(
+    source: S,
+    config: C,
+) -> Result<String, FormatError> {
     let source = source.as_ref();
+    let config = config.as_ref();
 
     // Parse Solidity source code into AST elements and comments.
     let (source_unit, comments) = solang_parser::parse(source, 0).map_err(|errors| {
@@ -358,8 +391,15 @@ pub fn peck_solidity<S: AsRef<str>>(source: S) -> Result<String, FormatError> {
     })?;
 
     // Collect comments for association with AST elements.
-    let _collected = collector::collect_source_unit(&source_unit, &comments, source);
+    let collected = collector::collect_source_unit(&source_unit, &comments, source);
 
-    // TODO: Implement peck extraction logic
-    Ok("// peck output placeholder\n".to_string())
+    // Transform to interface representation.
+    let interface = peck::transform_to_interface(&collected);
+
+    // Construct an IR from the interface elements for printing.
+    let ir = ir_builder::build_ir(&interface);
+
+    // Print the IR into its properly-formatted output.
+    let mut printer = Printer::with_config(config.max_line_width, config.indent_size);
+    Ok(printer.print(&ir))
 }

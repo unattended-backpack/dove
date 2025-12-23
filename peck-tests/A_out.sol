@@ -13,7 +13,11 @@ pragma solidity 0.8.33;
 */
 interface IPublicResolver {
 
-  /// This resolver is hardcoded to point to the ENS registry address.
+  /**
+    This resolver is hardcoded to point to the ENS registry address.
+
+    @return _ TODO
+  */
   function ENS () external pure returns (address);
 
   /**
@@ -25,7 +29,7 @@ interface IPublicResolver {
   */
   function addresses (
     bytes32 _node
-  ) external returns (address);
+  ) external view returns (address);
 
   /**
     Map a specific ENS `_node` to its resolved `_name`.
@@ -36,7 +40,7 @@ interface IPublicResolver {
   */
   function names (
     bytes32 _node
-  ) external returns (string memory);
+  ) external view returns (string memory);
 
   /**
     EIP-165 interface detection.
