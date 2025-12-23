@@ -14,10 +14,10 @@ fn reformat(source: &str) -> String {
     printer.print(&ir)
 }
 
-/// Helper to read a testbench file.
-fn read_testbench(filename: &str) -> String {
+/// Helper to read a preen-tests file.
+fn read_preen_test(filename: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("testbench")
+        .join("preen-tests")
         .join(filename);
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("Failed to read {}: {}", path.display(), e))
 }
@@ -59,96 +59,96 @@ pub fn assert_print_match(expected: String, actual: String) {
 
 #[test]
 fn test_a() {
-    let input = read_testbench("A_in.sol");
-    let expected = read_testbench("A_out.sol");
+    let input = read_preen_test("A_in.sol");
+    let expected = read_preen_test("A_out.sol");
     let actual = reformat(&input);
     assert_print_match(expected, actual);
 }
 
 #[test]
 fn test_b() {
-    let input = read_testbench("B_in.sol");
-    let expected = read_testbench("B_out.sol");
+    let input = read_preen_test("B_in.sol");
+    let expected = read_preen_test("B_out.sol");
     let actual = reformat(&input);
     assert_print_match(expected, actual);
 }
 
 #[test]
 fn test_c() {
-    let input = read_testbench("C_in.sol");
-    let expected = read_testbench("C_out.sol");
+    let input = read_preen_test("C_in.sol");
+    let expected = read_preen_test("C_out.sol");
     let actual = reformat(&input);
     assert_print_match(expected, actual);
 }
 
 #[test]
 fn test_d() {
-    let input = read_testbench("D_in.sol");
-    let expected = read_testbench("D_out.sol");
+    let input = read_preen_test("D_in.sol");
+    let expected = read_preen_test("D_out.sol");
     let actual = reformat(&input);
     assert_print_match(expected, actual);
 }
 
 #[test]
 fn test_e() {
-    let input = read_testbench("E_in.sol");
-    let expected = read_testbench("E_out.sol");
+    let input = read_preen_test("E_in.sol");
+    let expected = read_preen_test("E_out.sol");
     let actual = reformat(&input);
     assert_print_match(expected, actual);
 }
 
 #[test]
 fn test_f() {
-    let input = read_testbench("F_in.sol");
-    let expected = read_testbench("F_out.sol");
+    let input = read_preen_test("F_in.sol");
+    let expected = read_preen_test("F_out.sol");
     let actual = reformat(&input);
     assert_print_match(expected, actual);
 }
 
 #[test]
 fn test_g() {
-    let input = read_testbench("G_in.sol");
-    let expected = read_testbench("G_out.sol");
+    let input = read_preen_test("G_in.sol");
+    let expected = read_preen_test("G_out.sol");
     let actual = reformat(&input);
     assert_print_match(expected, actual);
 }
 
 #[test]
 fn test_h() {
-    let input = read_testbench("H_in.sol");
-    let expected = read_testbench("H_out.sol");
+    let input = read_preen_test("H_in.sol");
+    let expected = read_preen_test("H_out.sol");
     let actual = reformat(&input);
     assert_print_match(expected, actual);
 }
 
 #[test]
 fn test_i() {
-    let input = read_testbench("I_in.sol");
-    let expected = read_testbench("I_out.sol");
+    let input = read_preen_test("I_in.sol");
+    let expected = read_preen_test("I_out.sol");
     let actual = reformat(&input);
     assert_print_match(expected, actual);
 }
 
 #[test]
 fn test_j() {
-    let input = read_testbench("J_in.sol");
-    let expected = read_testbench("J_out.sol");
+    let input = read_preen_test("J_in.sol");
+    let expected = read_preen_test("J_out.sol");
     let actual = reformat(&input);
     assert_print_match(expected, actual);
 }
 
 #[test]
 fn test_k() {
-    let input = read_testbench("K_in.sol");
-    let expected = read_testbench("K_out.sol");
+    let input = read_preen_test("K_in.sol");
+    let expected = read_preen_test("K_out.sol");
     let actual = reformat(&input);
     assert_print_match(expected, actual);
 }
 
 #[test]
 fn test_l() {
-    let input = read_testbench("L_in.sol");
-    let expected = read_testbench("L_out.sol");
+    let input = read_preen_test("L_in.sol");
+    let expected = read_preen_test("L_out.sol");
     let actual = reformat(&input);
     assert_print_match(expected, actual);
 }

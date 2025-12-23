@@ -37,10 +37,20 @@ build:
 	cp ./target/release/dove ./out/dove
 	@echo "Build complete."
 
+.PHONY: preen-test
+preen-test:
+	cargo build && cd preen-tests && bash test.sh && cd ../
+
+.PHONY: peck-test
+peck-test:
+	cargo build && cd peck-tests && bash test.sh && cd ../
+
 .PHONY: test
 test:
 	@echo "Running tests ..."
-	cargo build && cargo test && cd testbench && bash test.sh && cd ../
+	cargo build && cargo test
+	$(MAKE) preen-test
+	$(MAKE) peck-test
 	@echo "... tests completed."
 
 .PHONY: docker-d
@@ -138,6 +148,8 @@ help:
 	@echo "Targets:"
 	@echo "  clean           Clean output directories."
 	@echo "  build           Build native binaries."
+	@echo "  preen-test      Test the preen utility."
+	@echo "  peck-test       Test the peck utility."
 	@echo "  test            Run all tests for the build."
 	@echo "  docker-c        Build just the Dove image."
 	@echo "  docker          Build Docker images (compiles inside container)."

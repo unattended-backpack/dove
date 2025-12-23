@@ -562,6 +562,8 @@ pub fn build_function_ir(func: &CollectedFunction) -> Vec<IRElement> {
                         }
                         current_line.push_str(trimmed);
                     } else if !trimmed.is_empty() {
+                        // DocLine without @ tag - still valid NatSpec (description only)
+                        is_natspec = true;
                         // Continuation of previous line
                         if !current_line.is_empty() {
                             current_line.push(' ');
@@ -635,11 +637,16 @@ pub fn build_function_ir(func: &CollectedFunction) -> Vec<IRElement> {
                         }
                     }
                 }
-                Comment::Line(_, _) => {
-                    // Regular line comment - not part of NatSpec
+                Comment::Line(_, content) => {
+                    // Regular line comment - collect content for potential NatSpec conversion
                     has_regular_comments = true;
-                    ir.push(build_comment(comment));
-                    ir.push(IRElement::HardLineBreak);
+                    let trimmed = content.trim_start_matches("//").trim();
+                    if !trimmed.is_empty() {
+                        if !current_line.is_empty() {
+                            current_line.push(' ');
+                        }
+                        current_line.push_str(trimmed);
+                    }
                 }
                 _ => {
                     // Other comment types
@@ -649,9 +656,9 @@ pub fn build_function_ir(func: &CollectedFunction) -> Vec<IRElement> {
             }
         }
 
-        // Push any remaining content
-        if !current_line.is_empty() {
-            natspec_lines.push(current_line);
+        // Push any remaining content (clone to preserve for regular comment check)
+        if !current_line.is_empty() && is_natspec {
+            natspec_lines.push(current_line.clone());
         }
 
         // If we collected NatSpec lines, format them appropriately
@@ -694,6 +701,19 @@ pub fn build_function_ir(func: &CollectedFunction) -> Vec<IRElement> {
                 ir.push(build_comment(comment));
                 ir.push(IRElement::HardLineBreak);
             }
+        } else if has_regular_comments
+            && !current_line.is_empty()
+            && matches!(
+                func.definition.element.ty,
+                FunctionTy::Function | FunctionTy::Constructor | FunctionTy::Modifier
+            )
+        {
+            // Regular comments on a function - convert to NatSpec with the comment as description
+            ir.extend(generate_function_natspec_with_description(
+                &func,
+                Some(&current_line),
+            ));
+            ir.push(IRElement::HardLineBreak);
         }
     } else if matches!(
         func.definition.element.ty,
@@ -1071,7 +1091,11 @@ fn format_base_or_modifier(base: &Base, renames: &HashMap<String, String>) -> IR
 }
 
 /// Generate NatSpec documentation for an undocumented function
-fn generate_function_natspec(func: &CollectedFunction) -> Vec<IRElement> {
+/// If `description` is provided, use it instead of "TODO"
+fn generate_function_natspec_with_description(
+    func: &CollectedFunction,
+    description: Option<&str>,
+) -> Vec<IRElement> {
     let mut ir = vec![];
 
     ir.push(IRElement::text("/**"));
@@ -1079,8 +1103,9 @@ fn generate_function_natspec(func: &CollectedFunction) -> Vec<IRElement> {
     // HardLineBreak at start ensures first line gets indented
     let mut content = vec![IRElement::HardLineBreak];
 
-    // Add TODO notice
-    content.push(IRElement::text("TODO"));
+    // Add description or TODO notice
+    let desc_text = description.unwrap_or("TODO");
+    content.push(IRElement::text(desc_text));
     content.push(IRElement::HardLineBreak);
 
     // Add blank line before parameters if there are any
@@ -1124,4 +1149,9 @@ fn generate_function_natspec(func: &CollectedFunction) -> Vec<IRElement> {
     ir.push(IRElement::text("*/"));
 
     ir
+}
+
+/// Generate NatSpec documentation for an undocumented function
+fn generate_function_natspec(func: &CollectedFunction) -> Vec<IRElement> {
+    generate_function_natspec_with_description(func, None)
 }

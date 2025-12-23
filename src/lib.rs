@@ -322,3 +322,44 @@ pub fn format_solidity_with_config<S: AsRef<str>, C: AsRef<FormatConfig>>(
     let mut printer = Printer::with_config(config.max_line_width, config.indent_size);
     Ok(printer.print(&ir))
 }
+
+/// Extract and display information from Solidity source code.
+///
+/// The `peck` command analyzes Solidity source code and extracts structured
+/// information in a specific output format.
+///
+/// # Arguments
+///
+/// * `source` - Solidity source code to analyze
+///
+/// # Returns
+///
+/// Extracted information as a formatted string, or an error if parsing fails.
+///
+/// # Errors
+///
+/// Returns [`FormatError::ParseError`] if the source code contains syntax errors.
+pub fn peck_solidity<S: AsRef<str>>(source: S) -> Result<String, FormatError> {
+    let source = source.as_ref();
+
+    // Parse Solidity source code into AST elements and comments.
+    let (source_unit, comments) = solang_parser::parse(source, 0).map_err(|errors| {
+        let first_error = errors.into_iter().next().unwrap_or_else(|| {
+            solang_parser::diagnostics::Diagnostic::parser_error(
+                solang_parser::pt::Loc::Builtin,
+                "Unknown parsing error".to_string(),
+            )
+        });
+
+        FormatError::ParseError {
+            kind: ParseErrorKind::InvalidSyntax,
+            message: format!("{:?}", first_error),
+        }
+    })?;
+
+    // Collect comments for association with AST elements.
+    let _collected = collector::collect_source_unit(&source_unit, &comments, source);
+
+    // TODO: Implement peck extraction logic
+    Ok("// peck output placeholder\n".to_string())
+}

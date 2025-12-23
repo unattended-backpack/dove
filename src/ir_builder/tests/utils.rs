@@ -7,10 +7,10 @@ use solang_parser::parse;
 use std::fs;
 use std::path::Path;
 
-/// Read a testbench file by name
-pub fn read_testbench(filename: &str) -> String {
+/// Read a preen-tests file by name
+pub fn read_preen_test(filename: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("testbench")
+        .join("preen-tests")
         .join(filename);
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("Failed to read {}: {}", path.display(), e))
 }

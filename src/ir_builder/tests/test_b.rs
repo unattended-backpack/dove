@@ -1,5 +1,5 @@
 use crate::ir_builder::tests::utils::{
-    assert_ir_sequences_match, build_ir_from_source, grouped_text, param_doc, read_testbench,
+    assert_ir_sequences_match, build_ir_from_source, grouped_text, param_doc, read_preen_test,
 };
 use crate::ir_builder::ir::IRElement;
 
@@ -39,7 +39,7 @@ fn struct_ir(
 
 #[test]
 fn test_contract_b() {
-    let source = read_testbench("B_in.sol");
+    let source = read_preen_test("B_in.sol");
     let ir = build_ir_from_source(&source);
 
     // Build expected contract body contents (all inside a single Indent)

@@ -49,4 +49,20 @@ contract Test {
     addresses[_node] = _addr;
     emit AddrChanged(_node, _addr);
   }
+
+  /**
+    EIP-165 interface detection
+
+    @param _interfaceId TODO
+
+    @return _ TODO
+  */
+  function supportsInterface (
+    bytes4 _interfaceId
+  ) public pure returns (bool) {
+
+    // supportsInterface
+    return _interfaceId == 0x3b3b57de || _interfaceId == 0x691f3431
+    || _interfaceId == 0x01ffc9a7;
+  }
 }

@@ -25,6 +25,7 @@ fn print_help(program: &str) {
     println!();
     println!("Commands:");
     println!("  preen <file>  Format a Solidity file, preening it into shape.");
+    println!("  peck <file>   Extract and display information from a Solidity file.");
     println!("  sing          Output a boilerplate smart contract template.");
     println!("  help          Show this help message.");
 }
@@ -44,6 +45,26 @@ fn cmd_preen(filename: &str) {
         }
         Err(err) => {
             eprintln!("Format error: {}", err);
+            process::exit(1);
+        }
+    }
+}
+
+fn cmd_peck(filename: &str) {
+    let source = match fs::read_to_string(filename) {
+        Ok(content) => content,
+        Err(err) => {
+            eprintln!("Error reading file '{}': {}", filename, err);
+            process::exit(1);
+        }
+    };
+
+    match dove::peck_solidity(&source) {
+        Ok(output) => {
+            print!("{}", output);
+        }
+        Err(err) => {
+            eprintln!("Peck error: {}", err);
             process::exit(1);
         }
     }
@@ -69,6 +90,13 @@ fn main() {
                 process::exit(1);
             }
             cmd_preen(&args[2]);
+        }
+        "peck" => {
+            if args.len() != 3 {
+                eprintln!("Usage: {} peck <solidity_file>", program);
+                process::exit(1);
+            }
+            cmd_peck(&args[2]);
         }
         "sing" => {
             cmd_sing();
