@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-VPL WITH AGPL-3.0-only
 pragma solidity 0.8.33;
 contract Test {
+  mapping (bytes32 => address) private addresses;
   modifier authorised (bytes32 node) {
     require(ens.owner(node) == msg.sender, "Not authorized");
     _;

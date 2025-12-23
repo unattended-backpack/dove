@@ -125,9 +125,9 @@ contract ETHLockbox is
   /**
     Mapping of authorized portals.
 
-    @param _portal The address of an `OptimismPortal`.
+    @custom:param _portal The address of an `OptimismPortal`.
 
-    @return _isAuthorized Whether or not the `portal` is authorized.
+    @custom:return _isAuthorized Whether or not the `portal` is authorized.
   */
   mapping (
     IOptimismPortal _portal => bool _isAuthorized
@@ -136,10 +136,10 @@ contract ETHLockbox is
   /**
     Mapping of authorized lockboxes.
 
-    @param TODO
-    @param TODO
+    @custom:param TODO
+    @custom:param TODO
 
-    @return TODO
+    @custom:return TODO
   */
   mapping (
     IETHLockbox TODO => mapping (

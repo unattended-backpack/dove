@@ -16,6 +16,17 @@ contract Test {
   /**
     TODO
 
+    @custom:param TODO
+
+    @custom:return TODO
+  */
+  mapping (
+    bytes32 TODO => address TODO
+  ) private addresses;
+
+  /**
+    TODO
+
     @param _node TODO
   */
   modifier authorised (

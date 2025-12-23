@@ -247,9 +247,9 @@ contract DataAvailabilityChallenge is
   /**
     A mapping from addresses to their bond balance in the contract.
 
-    @param TODO
+    @custom:param TODO
 
-    @return TODO
+    @custom:return TODO
   */
   mapping (
     address TODO => uint256 TODO
@@ -259,10 +259,10 @@ contract DataAvailabilityChallenge is
     A mapping from challenged block numbers to challenged commitments to
     challenges.
 
-    @param TODO
-    @param TODO
+    @custom:param TODO
+    @custom:param TODO
 
-    @return TODO
+    @custom:return TODO
   */
   mapping (
     uint256 TODO => mapping (

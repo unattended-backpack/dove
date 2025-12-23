@@ -14,6 +14,11 @@ fn build_variable_natspec_ir_with_type(
 ) -> Vec<IRElement> {
     let mut ir = vec![];
 
+    // Check if this is a mapping - mappings require @custom:param and @custom:return
+    let is_mapping = matches!(ty, Expression::Type(_, Type::Mapping { .. }));
+    let param_tag = if is_mapping { "@custom:param" } else { "@param" };
+    let return_tag = if is_mapping { "@custom:return" } else { "@return" };
+
     // Start comment block
     ir.push(IRElement::text("/**"));
 
@@ -40,9 +45,12 @@ fn build_variable_natspec_ir_with_type(
             let dev_text = trimmed.strip_prefix("@dev ").unwrap_or("").trim();
             description_lines.push(dev_text.to_string());
             in_description = true;
-        } else if trimmed.starts_with("@param ") {
+        } else if trimmed.starts_with("@param ") || trimmed.starts_with("@custom:param ") {
             in_description = false;
-            let rest = trimmed.strip_prefix("@param ").unwrap();
+            let rest = trimmed
+                .strip_prefix("@param ")
+                .or_else(|| trimmed.strip_prefix("@custom:param "))
+                .unwrap();
             if let Some((name, desc)) = rest.split_once(' ') {
                 // Don't prefix "TODO" placeholder with underscore
                 let prefixed_name = if name.starts_with('_') || name == "TODO" {
@@ -50,7 +58,7 @@ fn build_variable_natspec_ir_with_type(
                 } else {
                     format!("_{}", name)
                 };
-                param_tags.push(format!("@param {} {}", prefixed_name, desc));
+                param_tags.push(format!("{} {} {}", param_tag, prefixed_name, desc));
             } else {
                 // Don't prefix "TODO" placeholder with underscore
                 let prefixed_name = if rest.starts_with('_') || rest == "TODO" {
@@ -58,11 +66,14 @@ fn build_variable_natspec_ir_with_type(
                 } else {
                     format!("_{}", rest)
                 };
-                param_tags.push(format!("@param {}", prefixed_name));
+                param_tags.push(format!("{} {}", param_tag, prefixed_name));
             }
-        } else if trimmed.starts_with("@return ") {
+        } else if trimmed.starts_with("@return ") || trimmed.starts_with("@custom:return ") {
             in_description = false;
-            let rest = trimmed.strip_prefix("@return ").unwrap();
+            let rest = trimmed
+                .strip_prefix("@return ")
+                .or_else(|| trimmed.strip_prefix("@custom:return "))
+                .unwrap();
             if let Some((name, desc)) = rest.split_once(' ') {
                 // Don't prefix "TODO" placeholder with underscore
                 let prefixed_name = if name.starts_with('_') || name == "TODO" {
@@ -70,7 +81,7 @@ fn build_variable_natspec_ir_with_type(
                 } else {
                     format!("_{}", name)
                 };
-                return_tags.push(format!("@return {} {}", prefixed_name, desc));
+                return_tags.push(format!("{} {} {}", return_tag, prefixed_name, desc));
             } else {
                 // Don't prefix "TODO" placeholder with underscore
                 let prefixed_name = if rest.starts_with('_') || rest == "TODO" {
@@ -78,7 +89,7 @@ fn build_variable_natspec_ir_with_type(
                 } else {
                     format!("_{}", rest)
                 };
-                return_tags.push(format!("@return {}", prefixed_name));
+                return_tags.push(format!("{} {}", return_tag, prefixed_name));
             }
         } else if trimmed.starts_with("@") {
             in_description = false;
@@ -104,19 +115,19 @@ fn build_variable_natspec_ir_with_type(
     if needed_returns > 0 && param_tags.len() > needed_params && return_tags.is_empty() {
         while param_tags.len() > needed_params && return_tags.len() < needed_returns {
             let extra = param_tags.pop().unwrap();
-            let as_return = extra.replacen("@param", "@return", 1);
+            let as_return = extra.replacen(param_tag, return_tag, 1);
             return_tags.push(as_return);
         }
     }
 
     // Add TODO param tags for missing ones
     while param_tags.len() < needed_params {
-        param_tags.push("@param TODO".to_string());
+        param_tags.push(format!("{} TODO", param_tag));
     }
 
     // Add TODO return tags for missing ones
     while return_tags.len() < needed_returns {
-        return_tags.push("@return TODO".to_string());
+        return_tags.push(format!("{} TODO", return_tag));
     }
 
     // Track if we've added any section (for blank line logic)
@@ -577,8 +588,18 @@ pub fn build_variable_definition_ir(
         }
     } else {
         // Generate TODO documentation for undocumented state variables
-        ir.push(IRElement::text("/// TODO"));
-        ir.push(IRElement::HardLineBreak);
+        // Mappings need full NatSpec with @custom:param and @custom:return
+        let is_mapping = matches!(
+            &var_def.element.ty,
+            Expression::Type(_, Type::Mapping { .. })
+        );
+        if is_mapping {
+            ir.extend(build_variable_natspec_ir_with_type(&[], &var_def.element.ty));
+            ir.push(IRElement::HardLineBreak);
+        } else {
+            ir.push(IRElement::text("/// TODO"));
+            ir.push(IRElement::HardLineBreak);
+        }
     }
 
     // Build type and variable name
