@@ -697,9 +697,9 @@ pub fn build_function_ir(func: &CollectedFunction) -> Vec<IRElement> {
         }
     } else if matches!(
         func.definition.element.ty,
-        FunctionTy::Function | FunctionTy::Constructor
+        FunctionTy::Function | FunctionTy::Constructor | FunctionTy::Modifier
     ) {
-        // No documentation for public functions - generate NatSpec
+        // No documentation for public functions/modifiers - generate NatSpec
         ir.extend(generate_function_natspec(&func));
         ir.push(IRElement::HardLineBreak);
     }
@@ -769,7 +769,7 @@ fn build_function_definition(func: &CollectedFunction) -> Vec<IRElement> {
     // Function attributes (visibility, mutability, modifiers, etc.)
     for attr in &func.definition.element.attributes {
         ir.push(IRElement::text(" "));
-        ir.push(format_function_attribute(attr));
+        ir.push(format_function_attribute(attr, &param_renames));
     }
 
     // Return parameters
@@ -1015,7 +1015,10 @@ fn build_function_definition(func: &CollectedFunction) -> Vec<IRElement> {
 
 // Removed - using format_parameter from expressions.rs instead
 
-fn format_function_attribute(attr: &FunctionAttribute) -> IRElement {
+fn format_function_attribute(
+    attr: &FunctionAttribute,
+    renames: &HashMap<String, String>,
+) -> IRElement {
     match attr {
         FunctionAttribute::Visibility(vis) => format_visibility(vis),
         FunctionAttribute::Mutability(mut_) => format_mutability(mut_),
@@ -1036,7 +1039,7 @@ fn format_function_attribute(attr: &FunctionAttribute) -> IRElement {
                 IRElement::group(ir)
             }
         }
-        FunctionAttribute::BaseOrModifier(_, base) => format_base_or_modifier(base),
+        FunctionAttribute::BaseOrModifier(_, base) => format_base_or_modifier(base, renames),
         FunctionAttribute::Error(_) => IRElement::text("/* error */"),
     }
 }
@@ -1050,7 +1053,7 @@ fn format_mutability(mut_: &Mutability) -> IRElement {
     })
 }
 
-fn format_base_or_modifier(base: &Base) -> IRElement {
+fn format_base_or_modifier(base: &Base, renames: &HashMap<String, String>) -> IRElement {
     let mut ir = vec![format_identifier_path(&base.name)];
 
     if let Some(args) = &base.args {
@@ -1059,7 +1062,7 @@ fn format_base_or_modifier(base: &Base) -> IRElement {
             if i > 0 {
                 ir.push(IRElement::text(", "));
             }
-            ir.push(format_expression(arg));
+            ir.push(format_expression_with_renames(arg, renames));
         }
         ir.push(IRElement::text(")"));
     }

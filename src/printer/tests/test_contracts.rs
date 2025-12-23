@@ -144,3 +144,11 @@ fn test_k() {
     let actual = reformat(&input);
     assert_print_match(expected, actual);
 }
+
+#[test]
+fn test_l() {
+    let input = read_testbench("L_in.sol");
+    let expected = read_testbench("L_out.sol");
+    let actual = reformat(&input);
+    assert_print_match(expected, actual);
+}
