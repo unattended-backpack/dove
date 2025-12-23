@@ -57,6 +57,28 @@ pub fn build_statement_ir_full(
                     return_ctx,
                 )
             }
+            Statement::For(_, init, cond, update, body) => {
+                // Build for statement with collected nested statements
+                build_for_ir_full(
+                    init.as_ref().map(|s| &**s),
+                    cond.as_ref().map(|e| &**e),
+                    update.as_ref().map(|e| &**e),
+                    body.as_ref().map(|s| &**s),
+                    &stmt.nested_statements,
+                    renames,
+                    return_ctx,
+                )
+            }
+            Statement::While(_, cond, body) => {
+                // Build while statement with collected nested statements
+                build_while_ir_full(
+                    cond,
+                    body,
+                    &stmt.nested_statements,
+                    renames,
+                    return_ctx,
+                )
+            }
             Statement::Block { .. } => {
                 // Handle block with collected statements
                 if let Some(nested) = &stmt.nested_statements {
@@ -365,7 +387,7 @@ fn build_if_ir_full(
 
     if let Some(else_s) = else_stmt {
         ir.push(IRElement::text(" else "));
-        // Wrap else body in braces too (unless it's already a block or if-else chain)
+        // Handle else body based on its type
         match else_s {
             Statement::Block { .. } => {
                 ir.extend(format_statement_full(else_s, renames, return_ctx));
@@ -375,7 +397,7 @@ fn build_if_ir_full(
                 ir.extend(format_statement_full(else_s, renames, return_ctx));
             }
             _ => {
-                // Non-block else - wrap in braces
+                // Non-block else - wrap in braces for consistent style
                 let mut block_ir = vec![IRElement::text("{")];
                 block_ir.push(IRElement::HardLineBreak);
                 let stmt_ir = format_statement_full(else_s, renames, return_ctx);
@@ -523,6 +545,121 @@ fn format_for_with_renames(
         ir.extend(format_statement_with_renames(body_stmt, renames));
     } else {
         ir.push(IRElement::text(";"));
+    }
+
+    ir
+}
+
+/// Build IR for a for statement with collected nested statements (preserves body comments)
+fn build_for_ir_full(
+    init: Option<&Statement>,
+    cond: Option<&Expression>,
+    update: Option<&Expression>,
+    body: Option<&Statement>,
+    nested_statements: &Option<Vec<CommentedStatement>>,
+    renames: &mut HashMap<String, String>,
+    return_ctx: &mut ReturnVarContext,
+) -> Vec<IRElement> {
+    let mut ir = vec![IRElement::text("for (")];
+
+    // Init - may introduce new local variables that affect subsequent expressions
+    if let Some(init_stmt) = init {
+        ir.extend(format_statement_with_renames(init_stmt, renames));
+    } else {
+        ir.push(IRElement::text(";"));
+    }
+
+    ir.push(IRElement::text(" "));
+
+    // Condition - uses renames (including any from init)
+    if let Some(cond_expr) = cond {
+        ir.push(format_expression_with_renames(cond_expr, renames));
+    }
+    ir.push(IRElement::text("; "));
+
+    // Update - uses renames
+    if let Some(update_expr) = update {
+        ir.push(format_expression_with_renames(update_expr, renames));
+    }
+
+    ir.push(IRElement::text(") "));
+
+    // Body - use collected nested statements if available
+    if let Some(nested) = nested_statements {
+        // Format as a block with the collected statements
+        let mut block_ir = vec![IRElement::text("{")];
+
+        if !nested.is_empty() {
+            for stmt in nested.iter() {
+                block_ir.push(IRElement::HardLineBreak);
+
+                // Add blank line before statements with leading comments
+                if !stmt.leading_comments.is_empty() {
+                    block_ir.push(IRElement::HardLineBreak);
+                }
+
+                let stmt_ir = build_statement_ir_full(stmt, renames, return_ctx);
+                block_ir.push(IRElement::indent(stmt_ir));
+            }
+            block_ir.push(IRElement::HardLineBreak);
+        }
+
+        block_ir.push(IRElement::text("}"));
+        ir.extend(block_ir);
+    } else if let Some(body_stmt) = body {
+        ir.extend(format_statement_with_renames(body_stmt, renames));
+    } else {
+        ir.push(IRElement::text(";"));
+    }
+
+    ir
+}
+
+/// Build IR for a while statement with collected nested statements (preserves body comments)
+fn build_while_ir_full(
+    cond: &Expression,
+    body: &Statement,
+    nested_statements: &Option<Vec<CommentedStatement>>,
+    renames: &mut HashMap<String, String>,
+    return_ctx: &mut ReturnVarContext,
+) -> Vec<IRElement> {
+    let mut ir = vec![
+        IRElement::text("while ("),
+        format_expression_with_renames(cond, renames),
+        IRElement::text(") "),
+    ];
+
+    // Body - use collected nested statements if available
+    match body {
+        Statement::Block { .. } => {
+            if let Some(nested) = nested_statements {
+                // Format as a block with the collected statements
+                let mut block_ir = vec![IRElement::text("{")];
+
+                if !nested.is_empty() {
+                    for stmt in nested.iter() {
+                        block_ir.push(IRElement::HardLineBreak);
+
+                        // Add blank line before statements with leading comments
+                        if !stmt.leading_comments.is_empty() {
+                            block_ir.push(IRElement::HardLineBreak);
+                        }
+
+                        let stmt_ir = build_statement_ir_full(stmt, renames, return_ctx);
+                        block_ir.push(IRElement::indent(stmt_ir));
+                    }
+                    block_ir.push(IRElement::HardLineBreak);
+                }
+
+                block_ir.push(IRElement::text("}"));
+                ir.extend(block_ir);
+            } else {
+                ir.extend(format_statement_with_renames(body, renames));
+            }
+        }
+        _ => {
+            ir.extend(format_statement_with_renames(body, renames));
+        }
     }
 
     ir

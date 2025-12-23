@@ -619,11 +619,21 @@ pub fn build_variable_definition_ir(
 
     // Add initializer if present
     if let Some(init_expr) = &var_def.element.initializer {
-        ir.push(IRElement::text(" = "));
-        ir.push(format_expression(init_expr));
+        // Wrap in a group so long assignments can break after the =
+        // When it fits: bytes32 constant X = 0x123...;
+        // When too long: bytes32 constant X =
+        //                  0x123...;
+        ir.push(IRElement::group(vec![
+            IRElement::text(" ="),
+            IRElement::indent(vec![
+                IRElement::SoftLineBreak,
+                format_expression(init_expr),
+                IRElement::text(";"),
+            ]),
+        ]));
+    } else {
+        ir.push(IRElement::text(";"));
     }
-
-    ir.push(IRElement::text(";"));
 
     // Handle type comments if present (these would be within complex types like mappings)
     if let Some(type_comments) = &var_def.type_comments {

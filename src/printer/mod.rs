@@ -207,10 +207,32 @@ impl Printer {
         let prefix = if is_doc { "///" } else { "//" };
         let line_comment = format!("{} {}", prefix, text);
 
-        // Check if it fits as a line comment
+        // Check if the text contains newlines - if so, preserve them in a block comment
+        let has_newlines = text.contains('\n');
+
+        // Check if it fits as a line comment (only if no newlines)
         let indent_width = indent * self.indent_width;
-        if indent_width + line_comment.len() <= self.max_width {
+        if !has_newlines && indent_width + line_comment.len() <= self.max_width {
             self.print_text(&line_comment);
+        } else if has_newlines {
+            // Text has intentional newlines - preserve them in block comment
+            let block_open = if is_doc { "/**" } else { "/*" };
+            self.print_text(block_open);
+            self.print_hard_line_break(indent + 1);
+
+            // Process line by line, preserving original structure
+            for (i, line) in text.lines().enumerate() {
+                if i > 0 {
+                    self.print_hard_line_break(indent + 1);
+                }
+                let trimmed = line.trim();
+                if !trimmed.is_empty() {
+                    self.print_text(trimmed);
+                }
+            }
+
+            self.print_hard_line_break(indent);
+            self.print_text("*/");
         } else {
             // Use block comment with word wrapping
             let block_open = if is_doc { "/**" } else { "/*" };
