@@ -786,10 +786,14 @@ fn build_function_definition(func: &CollectedFunction) -> Vec<IRElement> {
     }
     ir.push(IRElement::text(")"));
 
-    // Function attributes (visibility, mutability, modifiers, etc.)
+    // Function attributes (visibility, mutability, modifiers, etc.) and returns
+    // are wrapped together in a Group so that when the full signature exceeds
+    // the line limit, the returns clause will break appropriately.
+    let mut signature_tail = vec![];
+
     for attr in &func.definition.element.attributes {
-        ir.push(IRElement::text(" "));
-        ir.push(format_function_attribute(attr, &param_renames));
+        signature_tail.push(IRElement::text(" "));
+        signature_tail.push(format_function_attribute(attr, &param_renames));
     }
 
     // Return parameters
@@ -806,229 +810,249 @@ fn build_function_definition(func: &CollectedFunction) -> Vec<IRElement> {
             }
         }
 
-        // Wrap in a group so the printer can decide whether to break based on line length
-        // When it fits: returns (type)
-        // When too long: returns (\n    type\n  )
-        ir.push(IRElement::group(vec![
-            IRElement::text(" returns ("),
-            IRElement::indent(vec![
-                IRElement::SoftestLineBreak,
-                IRElement::group(returns_ir),
-            ]),
+        // Add returns with SoftestLineBreak that will trigger when the outer group breaks
+        // SoftestLineBreak becomes nothing when not breaking (keeping "returns (type)")
+        // but becomes a newline when the group needs to break
+        signature_tail.push(IRElement::text(" returns ("));
+        signature_tail.push(IRElement::indent(vec![
             IRElement::SoftestLineBreak,
-            IRElement::text(")"),
+            IRElement::group(returns_ir),
         ]));
+        signature_tail.push(IRElement::SoftestLineBreak);
+        signature_tail.push(IRElement::text(")"));
     }
 
-    // Function body
-    if let Some(body) = &func.definition.element.body {
-        ir.push(IRElement::text(" "));
+    // Function body - include the opening brace in the signature group
+    // so the full line length is measured when deciding to break
+    let has_body = func.definition.element.body.is_some();
+    let is_empty_body = func.body_statements.is_empty()
+        || (func.body_statements.len() == 1
+            && matches!(&func.body_statements[0].statement, Statement::Block { statements, .. } if statements.is_empty()));
 
-        // Check if the body is effectively empty
-        let is_empty_body = func.body_statements.is_empty()
-            || (func.body_statements.len() == 1
-                && matches!(&func.body_statements[0].statement, Statement::Block { statements, .. } if statements.is_empty()));
-
+    if has_body {
         if is_empty_body {
             // Empty body: use "{ }" on single line
-            ir.push(IRElement::text("{ }"));
-            return ir;
+            signature_tail.push(IRElement::text(" { }"));
+        } else {
+            signature_tail.push(IRElement::text(" {"));
         }
+    }
 
-        ir.push(IRElement::text("{"));
+    // Wrap the attributes + returns + brace in a Group so line length is evaluated together
+    if !signature_tail.is_empty() {
+        ir.push(IRElement::group(signature_tail));
+    }
 
-        // Build map of return variable names to their types for return var handling
-        let mut return_var_types: HashMap<String, Parameter> = HashMap::new();
-        let mut return_vars: HashSet<String> = HashSet::new();
-        for (_, ret) in &func.definition.element.returns {
-            if let Some(r) = ret {
-                if let Some(name) = &r.name {
-                    return_vars.insert(name.name.clone());
-                    return_var_types.insert(name.name.clone(), r.clone());
-                }
+    // Add semicolon for bodyless functions, or continue with body content
+    if !has_body {
+        ir.push(IRElement::text(";"));
+        return ir;
+    }
+
+    if is_empty_body {
+        return ir;
+    }
+
+    // Function body content (the opening brace is already in the signature group)
+
+    // Build map of return variable names to their types for return var handling
+    let mut return_var_types: HashMap<String, Parameter> = HashMap::new();
+    let mut return_vars: HashSet<String> = HashSet::new();
+    for (_, ret) in &func.definition.element.returns {
+        if let Some(r) = ret {
+            if let Some(name) = &r.name {
+                return_vars.insert(name.name.clone());
+                return_var_types.insert(name.name.clone(), r.clone());
             }
         }
+    }
 
-        // Track which return vars have been declared (first assignment becomes declaration)
-        let mut declared_return_vars: HashSet<String> = HashSet::new();
+    // Track which return vars have been declared (first assignment becomes declaration)
+    let mut declared_return_vars: HashSet<String> = HashSet::new();
 
-        // Count how many times each return var is used in the function body
-        // Variables used only once (just the assignment) can use direct `return expr;`
-        // BUT only if there's exactly one return variable (otherwise we need tuple return)
-        let return_var_usage_counts = count_return_var_usages(&func.body_statements, &return_vars);
-        let single_assignment_vars: HashSet<String> = if return_vars.len() == 1 {
-            return_var_usage_counts
-                .iter()
-                .filter(|(_, count)| **count == 1)
-                .map(|(name, _)| name.clone())
-                .collect()
-        } else {
-            // Multiple return vars - can't use direct return
-            HashSet::new()
-        };
+    // Count how many times each return var is used in the function body
+    // Variables used only once (just the assignment) can use direct `return expr;`
+    // BUT only if there's exactly one return variable (otherwise we need tuple return)
+    let return_var_usage_counts = count_return_var_usages(&func.body_statements, &return_vars);
+    let single_assignment_vars: HashSet<String> = if return_vars.len() == 1 {
+        return_var_usage_counts
+            .iter()
+            .filter(|(_, count)| **count == 1)
+            .map(|(name, _)| name.clone())
+            .collect()
+    } else {
+        // Multiple return vars - can't use direct return
+        HashSet::new()
+    };
 
-        // Build return var info map (with types) for assembly transformation
-        let return_var_info = build_return_var_info(&func.definition.element.returns);
+    // Build return var info map (with types) for assembly transformation
+    let return_var_info = build_return_var_info(&func.definition.element.returns);
 
-        // Build rename map for return vars used in assembly
-        let mut assembly_renames: HashMap<String, String> = HashMap::new();
-        for (name, info) in &return_var_info {
-            assembly_renames.insert(name.clone(), info.output_name.clone());
-        }
+    // Build rename map for return vars used in assembly
+    let mut assembly_renames: HashMap<String, String> = HashMap::new();
+    for (name, info) in &return_var_info {
+        assembly_renames.insert(name.clone(), info.output_name.clone());
+    }
 
-        // Combine param renames with assembly renames for statement processing
-        let mut all_renames = param_renames.clone();
-        all_renames.extend(assembly_renames.clone());
+    // Combine param renames with assembly renames for statement processing
+    let mut all_renames = param_renames.clone();
+    all_renames.extend(assembly_renames.clone());
 
-        // Track which return vars are actually used in assembly
-        let mut used_in_assembly: HashSet<String> = HashSet::new();
+    // Track which return vars are actually used in assembly
+    let mut used_in_assembly: HashSet<String> = HashSet::new();
 
-        // Use the collected body statements for proper formatting
-        if !func.body_statements.is_empty() {
-            ir.push(IRElement::HardLineBreak);
+    // Use the collected body statements for proper formatting
+    if !func.body_statements.is_empty() {
+        ir.push(IRElement::HardLineBreak);
 
-            let mut body_ir = vec![];
+        let mut body_ir = vec![];
 
-            // Get statements to process (may be nested in a block)
-            let stmts_to_process: &[CommentedStatement] = if func.body_statements.len() == 1 {
-                if let Statement::Block { .. } = &func.body_statements[0].statement {
-                    if let Some(nested) = &func.body_statements[0].nested_statements {
-                        nested
-                    } else {
-                        &func.body_statements
-                    }
+        // Get statements to process (may be nested in a block)
+        let stmts_to_process: &[CommentedStatement] = if func.body_statements.len() == 1 {
+            if let Statement::Block { .. } = &func.body_statements[0].statement {
+                if let Some(nested) = &func.body_statements[0].nested_statements {
+                    nested
                 } else {
                     &func.body_statements
                 }
             } else {
                 &func.body_statements
-            };
-
-            // Add blank line after opening brace if the first statement has leading comments
-            let first_has_comments = stmts_to_process
-                .first()
-                .map(|s| !s.leading_comments.is_empty())
-                .unwrap_or(false);
-            if first_has_comments {
-                ir.push(IRElement::HardLineBreak);
             }
+        } else {
+            &func.body_statements
+        };
 
-            for (i, stmt) in stmts_to_process.iter().enumerate() {
-                if i > 0 {
-                    body_ir.push(IRElement::HardLineBreak);
-                    if needs_blank_line_before_statement(stmts_to_process, i) {
-                        body_ir.push(IRElement::HardLineBreak);
-                    }
-                }
-
-                // Check if this is an assembly statement that uses return vars
-                if let Statement::Assembly {
-                    loc,
-                    dialect,
-                    flags,
-                    block: _,
-                } = &stmt.statement
-                {
-                    if let Some(yul) = &stmt.yul_block {
-                        if yul_block_uses_return_vars(yul, &return_vars) {
-                            // For assembly that uses return vars, we need to:
-                            // 1. Emit leading comments first
-                            // 2. Emit the variable declaration
-                            // 3. Emit the assembly without its leading comments
-
-                            // Emit leading comments
-                            body_ir.extend(build_leading_comments(&stmt.leading_comments));
-
-                            // Emit variable declarations for used return vars
-                            for var_name in &return_vars {
-                                if let Some(info) = return_var_info.get(var_name) {
-                                    if !used_in_assembly.contains(var_name) {
-                                        body_ir.extend(build_return_var_declaration(info));
-                                        body_ir.push(IRElement::HardLineBreak);
-                                        used_in_assembly.insert(var_name.clone());
-                                    }
-                                }
-                            }
-
-                            // Emit the assembly statement without leading comments (but with trailing)
-                            body_ir.extend(with_comments(&[], &stmt.trailing_comments, || {
-                                format_assembly_with_collected_and_renames(
-                                    loc,
-                                    dialect.as_ref(),
-                                    flags.as_ref(),
-                                    yul,
-                                    &mut all_renames,
-                                )
-                            }));
-                            continue;
-                        }
-                    }
-                }
-
-                // Process statement with renames applied
-                let mut return_ctx = ReturnVarContext {
-                    return_var_types: &return_var_types,
-                    declared_return_vars: &mut declared_return_vars,
-                    single_assignment_vars: &single_assignment_vars,
-                };
-                body_ir.extend(build_statement_ir_full(stmt, &mut all_renames, &mut return_ctx));
-            }
-
-            // Add explicit return for variables used in assembly
-            if !used_in_assembly.is_empty() {
-                body_ir.push(IRElement::HardLineBreak);
-
-                // Build return expression for all used vars
-                let return_exprs: Vec<String> = used_in_assembly
-                    .iter()
-                    .filter_map(|name| {
-                        return_var_info
-                            .get(name)
-                            .map(|info| info.output_name.clone())
-                    })
-                    .collect();
-
-                body_ir.push(IRElement::text("return "));
-                body_ir.push(IRElement::text(&return_exprs.join(", ")));
-                body_ir.push(IRElement::text(";"));
-            } else if !declared_return_vars.is_empty() {
-                // Add explicit return for declared return vars
-                body_ir.push(IRElement::HardLineBreak);
-
-                // Build return expression - maintain declaration order and use normalized names
-                let return_exprs: Vec<String> = func.definition.element.returns
-                    .iter()
-                    .filter_map(|(_, ret)| {
-                        ret.as_ref().and_then(|r| {
-                            r.name.as_ref().and_then(|name| {
-                                if declared_return_vars.contains(&name.name) {
-                                    // Use normalized name from renames map, or normalize directly
-                                    Some(all_renames.get(&name.name)
-                                        .cloned()
-                                        .unwrap_or_else(|| normalize_param_name(&name.name)))
-                                } else {
-                                    None
-                                }
-                            })
-                        })
-                    })
-                    .collect();
-
-                if return_exprs.len() == 1 {
-                    body_ir.push(IRElement::text(&format!("return {};", return_exprs[0])));
-                } else {
-                    body_ir.push(IRElement::text(&format!("return ({});", return_exprs.join(", "))));
-                }
-            }
-
-            ir.push(IRElement::indent(body_ir));
+        // Add blank line after opening brace if the first statement has leading comments
+        let first_has_comments = stmts_to_process
+            .first()
+            .map(|s| !s.leading_comments.is_empty())
+            .unwrap_or(false);
+        if first_has_comments {
             ir.push(IRElement::HardLineBreak);
         }
 
-        ir.push(IRElement::text("}"));
-    } else {
-        ir.push(IRElement::text(";"));
+        for (i, stmt) in stmts_to_process.iter().enumerate() {
+            if i > 0 {
+                body_ir.push(IRElement::HardLineBreak);
+                if needs_blank_line_before_statement(stmts_to_process, i) {
+                    body_ir.push(IRElement::HardLineBreak);
+                }
+            }
+
+            // Check if this is an assembly statement that uses return vars
+            if let Statement::Assembly {
+                loc,
+                dialect,
+                flags,
+                block: _,
+            } = &stmt.statement
+            {
+                if let Some(yul) = &stmt.yul_block {
+                    if yul_block_uses_return_vars(yul, &return_vars) {
+                        // For assembly that uses return vars, we need to:
+                        // 1. Emit leading comments first
+                        // 2. Emit the variable declaration
+                        // 3. Emit the assembly without its leading comments
+
+                        // Emit leading comments
+                        body_ir.extend(build_leading_comments(&stmt.leading_comments));
+
+                        // Emit variable declarations for used return vars
+                        for var_name in &return_vars {
+                            if let Some(info) = return_var_info.get(var_name) {
+                                if !used_in_assembly.contains(var_name) {
+                                    body_ir.extend(build_return_var_declaration(info));
+                                    body_ir.push(IRElement::HardLineBreak);
+                                    used_in_assembly.insert(var_name.clone());
+                                }
+                            }
+                        }
+
+                        // Emit the assembly statement without leading comments (but with trailing)
+                        body_ir.extend(with_comments(&[], &stmt.trailing_comments, || {
+                            format_assembly_with_collected_and_renames(
+                                loc,
+                                dialect.as_ref(),
+                                flags.as_ref(),
+                                yul,
+                                &mut all_renames,
+                            )
+                        }));
+                        continue;
+                    }
+                }
+            }
+
+            // Process statement with renames applied
+            let mut return_ctx = ReturnVarContext {
+                return_var_types: &return_var_types,
+                declared_return_vars: &mut declared_return_vars,
+                single_assignment_vars: &single_assignment_vars,
+            };
+            body_ir.extend(build_statement_ir_full(stmt, &mut all_renames, &mut return_ctx));
+        }
+
+        // Add explicit return for variables used in assembly
+        if !used_in_assembly.is_empty() {
+            body_ir.push(IRElement::HardLineBreak);
+
+            // Build return expression for all used vars
+            let return_exprs: Vec<String> = used_in_assembly
+                .iter()
+                .filter_map(|name| {
+                    return_var_info
+                        .get(name)
+                        .map(|info| info.output_name.clone())
+                })
+                .collect();
+
+            body_ir.push(IRElement::text("return "));
+            body_ir.push(IRElement::text(&return_exprs.join(", ")));
+            body_ir.push(IRElement::text(";"));
+        } else if !declared_return_vars.is_empty() {
+            // Add explicit return for declared return vars
+            body_ir.push(IRElement::HardLineBreak);
+
+            // Build return expression - maintain declaration order and use normalized names
+            let return_exprs: Vec<String> = func
+                .definition
+                .element
+                .returns
+                .iter()
+                .filter_map(|(_, ret)| {
+                    ret.as_ref().and_then(|r| {
+                        r.name.as_ref().and_then(|name| {
+                            if declared_return_vars.contains(&name.name) {
+                                // Use normalized name from renames map, or normalize directly
+                                Some(
+                                    all_renames
+                                        .get(&name.name)
+                                        .cloned()
+                                        .unwrap_or_else(|| normalize_param_name(&name.name)),
+                                )
+                            } else {
+                                None
+                            }
+                        })
+                    })
+                })
+                .collect();
+
+            if return_exprs.len() == 1 {
+                body_ir.push(IRElement::text(&format!("return {};", return_exprs[0])));
+            } else {
+                body_ir.push(IRElement::text(&format!(
+                    "return ({});",
+                    return_exprs.join(", ")
+                )));
+            }
+        }
+
+        ir.push(IRElement::indent(body_ir));
+        ir.push(IRElement::HardLineBreak);
     }
+
+    ir.push(IRElement::text("}"));
 
     ir
 }
