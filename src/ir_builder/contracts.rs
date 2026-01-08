@@ -201,31 +201,48 @@ pub fn build_contract_ir(contract: &CollectedContract) -> Vec<IRElement> {
 
         // If we collected NatSpec lines, check if it's complete or needs filling in
         if is_natspec && !natspec_lines.is_empty() {
-            // Check if the NatSpec has all required fields
-            let has_benediction = natspec_lines.iter().any(|l| l.starts_with("@custom:benediction "));
-            let has_title = natspec_lines.iter().any(|l| l.starts_with("@title "));
-            let has_author = natspec_lines.iter().any(|l| l.starts_with("@author "));
-            let has_terry = natspec_lines.iter().any(|l| l.starts_with("@custom:terry "));
-            let has_date = natspec_lines.iter().any(|l| l.starts_with("@custom:date "));
-            // Description is any non-empty line that doesn't start with @
-            let has_description = natspec_lines.iter().any(|l| !l.is_empty() && !l.starts_with("@"));
+            // Check for @custom:preserve - if present, output the original comment unchanged
+            let has_preserve = natspec_lines.iter().any(|l| l.trim() == "@custom:preserve" || l.starts_with("@custom:preserve "));
 
-            let is_complete = has_benediction && has_title && has_author && has_terry && has_date && has_description;
-
-            if is_complete {
-                // NatSpec is complete - use build_natspec_comment_ir to preserve structure
+            if has_preserve {
+                // Preserve mode - output the original comment unchanged
                 if let Some(content) = original_doc_block {
                     ir.extend(build_natspec_comment_ir(content));
                     ir.push(IRElement::HardLineBreak);
                 } else {
-                    // DocLine comments - just output them as-is formatted
+                    // DocLine comments - output them as-is
+                    for comment in leading_comments {
+                        ir.push(build_comment(comment));
+                        ir.push(IRElement::HardLineBreak);
+                    }
+                }
+            } else {
+                // Check if the NatSpec has all required fields
+                let has_benediction = natspec_lines.iter().any(|l| l.starts_with("@custom:benediction "));
+                let has_title = natspec_lines.iter().any(|l| l.starts_with("@title "));
+                let has_author = natspec_lines.iter().any(|l| l.starts_with("@author "));
+                let has_terry = natspec_lines.iter().any(|l| l.starts_with("@custom:terry "));
+                let has_date = natspec_lines.iter().any(|l| l.starts_with("@custom:date "));
+                // Description is any non-empty line that doesn't start with @
+                let has_description = natspec_lines.iter().any(|l| !l.is_empty() && !l.starts_with("@"));
+
+                let is_complete = has_benediction && has_title && has_author && has_terry && has_date && has_description;
+
+                if is_complete {
+                    // NatSpec is complete - use build_natspec_comment_ir to preserve structure
+                    if let Some(content) = original_doc_block {
+                        ir.extend(build_natspec_comment_ir(content));
+                        ir.push(IRElement::HardLineBreak);
+                    } else {
+                        // DocLine comments - just output them as-is formatted
+                        ir.extend(build_contract_natspec_ir(&natspec_lines, contract_name));
+                        ir.push(IRElement::HardLineBreak);
+                    }
+                } else {
+                    // NatSpec is incomplete - fill in missing fields
                     ir.extend(build_contract_natspec_ir(&natspec_lines, contract_name));
                     ir.push(IRElement::HardLineBreak);
                 }
-            } else {
-                // NatSpec is incomplete - fill in missing fields
-                ir.extend(build_contract_natspec_ir(&natspec_lines, contract_name));
-                ir.push(IRElement::HardLineBreak);
             }
         } else if !natspec_lines.is_empty() {
             // Not NatSpec, just regular doc comments

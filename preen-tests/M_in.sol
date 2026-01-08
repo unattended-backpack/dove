@@ -7,8 +7,9 @@ import { ERC20 } from "solady/tokens/ERC20.sol";
 /**
   @custom:benediction DEVS BENEDICAT ET PROTEGAT CONTRACTVM MEVM
   @title Test20
-  @author Tim Clancy <tim-clancy.eth>
+  @custom:blame Tim Clancy <tim-clancy.eth>
   @custom:terry "Is this too much voodoo for the next ten centuries?"
+  @custom:preserve
 
   A test ERC-20 token with a public faucet mint function. Anyone can mint any
   amount of tokens to themselves for testing purposes.
@@ -50,6 +51,17 @@ contract Test20 is
   function symbol () public pure override(ITest20, ERC20) returns (
     string memory
   ) {
+
+    // @custom:preserve
+    // |                      | ↓ ptr ...  ↓ ptr + 0x0B (start) ...  ↓ ptr + 0x20 ...  ↓ ptr + 0x40 ...   |
+    // |----------------------|---------------------------------------------------------------------------|
+    // | initCodeHash         |                                                        CCCCCCCCCCCCC...CC |
+    // | salt                 |                                      BBBBBBBBBBBBB...BB                   |
+    // | deployer             | 000000...0000AAAAAAAAAAAAAAAAAAA...AA                                     |
+    // | 0xFF                 |            FF                                                             |
+    // |----------------------|---------------------------------------------------------------------------|
+    // | memory               | 000000...00FFAAAAAAAAAAAAAAAAAAA...AABBBBBBBBBBBBB...BBCCCCCCCCCCCCC...CC |
+    // | keccak256(start, 85) |            ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ |
     return "TEST";
   }
 

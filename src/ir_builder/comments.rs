@@ -187,6 +187,7 @@ pub fn build_natspec_comment_ir(content: &str) -> Vec<IRElement> {
 /// Build IR for leading comments.
 /// Combines consecutive non-doc line comments into a single comment
 /// so the printer can decide whether to use line or block format.
+/// If @custom:preserve is found, outputs each line comment unchanged.
 pub fn build_leading_comments(comments: &[Comment]) -> Vec<IRElement> {
     let mut ir = Vec::new();
     let mut i = 0;
@@ -196,6 +197,7 @@ pub fn build_leading_comments(comments: &[Comment]) -> Vec<IRElement> {
         if let Comment::Line(_, _) = &comments[i] {
             // Collect consecutive non-doc line comments
             let mut line_texts: Vec<String> = Vec::new();
+            let start_index = i;
             while i < comments.len() {
                 if let Comment::Line(_, text) = &comments[i] {
                     let cleaned = text
@@ -214,10 +216,30 @@ pub fn build_leading_comments(comments: &[Comment]) -> Vec<IRElement> {
             }
 
             if !line_texts.is_empty() {
-                // Combine the text - the printer will decide the format
-                let combined = line_texts.join(" ");
-                ir.push(IRElement::comment(combined, false));
-                ir.push(IRElement::HardLineBreak);
+                // Check for @custom:preserve - if present, output each line unchanged
+                let has_preserve = line_texts.iter().any(|l| {
+                    l.trim() == "@custom:preserve" || l.starts_with("@custom:preserve ")
+                });
+
+                if has_preserve {
+                    // Preserve mode - output each line comment as raw text
+                    for j in start_index..i {
+                        if let Comment::Line(_, text) = &comments[j] {
+                            // Output the raw comment text (without extra processing)
+                            let trimmed = text.trim();
+                            ir.push(IRElement::text(trimmed));
+                            ir.push(IRElement::HardLineBreak);
+                        } else {
+                            ir.push(build_comment(&comments[j]));
+                            ir.push(IRElement::HardLineBreak);
+                        }
+                    }
+                } else {
+                    // Combine the text - the printer will decide the format
+                    let combined = line_texts.join(" ");
+                    ir.push(IRElement::comment(combined, false));
+                    ir.push(IRElement::HardLineBreak);
+                }
             }
         } else {
             // Not a non-doc line comment, output as-is
@@ -233,6 +255,7 @@ pub fn build_leading_comments(comments: &[Comment]) -> Vec<IRElement> {
 /// Build IR for leading comments, filtering out SPDX comments.
 /// Combines consecutive non-doc line comments into a single comment
 /// so the printer can decide whether to use line or block format.
+/// If @custom:preserve is found, outputs each line comment unchanged.
 pub fn build_leading_comments_without_spdx(comments: &[Comment]) -> Vec<IRElement> {
     let mut ir = Vec::new();
     let mut i = 0;
@@ -248,6 +271,7 @@ pub fn build_leading_comments_without_spdx(comments: &[Comment]) -> Vec<IRElemen
         if let Comment::Line(_, _) = &comments[i] {
             // Collect consecutive non-doc, non-SPDX line comments
             let mut line_texts: Vec<String> = Vec::new();
+            let mut collected_indices: Vec<usize> = Vec::new();
             while i < comments.len() {
                 if is_spdx_comment(&comments[i]) {
                     i += 1;
@@ -262,6 +286,7 @@ pub fn build_leading_comments_without_spdx(comments: &[Comment]) -> Vec<IRElemen
                         .to_string();
                     if !cleaned.is_empty() {
                         line_texts.push(cleaned);
+                        collected_indices.push(i);
                     }
                     i += 1;
                 } else {
@@ -270,9 +295,29 @@ pub fn build_leading_comments_without_spdx(comments: &[Comment]) -> Vec<IRElemen
             }
 
             if !line_texts.is_empty() {
-                let combined = line_texts.join(" ");
-                ir.push(IRElement::comment(combined, false));
-                ir.push(IRElement::HardLineBreak);
+                // Check for @custom:preserve - if present, output each line unchanged
+                let has_preserve = line_texts.iter().any(|l| {
+                    l.trim() == "@custom:preserve" || l.starts_with("@custom:preserve ")
+                });
+
+                if has_preserve {
+                    // Preserve mode - output each line comment as raw text
+                    for &j in &collected_indices {
+                        if let Comment::Line(_, text) = &comments[j] {
+                            // Output the raw comment text (without extra processing)
+                            let trimmed = text.trim();
+                            ir.push(IRElement::text(trimmed));
+                            ir.push(IRElement::HardLineBreak);
+                        } else {
+                            ir.push(build_comment(&comments[j]));
+                            ir.push(IRElement::HardLineBreak);
+                        }
+                    }
+                } else {
+                    let combined = line_texts.join(" ");
+                    ir.push(IRElement::comment(combined, false));
+                    ir.push(IRElement::HardLineBreak);
+                }
             }
         } else {
             ir.push(build_comment(&comments[i]));
