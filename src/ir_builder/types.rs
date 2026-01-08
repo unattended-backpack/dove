@@ -374,11 +374,14 @@ fn build_enum_definition(enum_def: &CollectedEnum) -> Vec<IRElement> {
 
 /// Build structured NatSpec from existing enum comments
 /// Converts @dev/@notice docs into block format with @param for each value
+/// Preserves existing @param documentation
 fn build_enum_natspec_from_comments(enum_def: &CollectedEnum) -> Vec<IRElement> {
     let comments = &enum_def.definition.leading_comments;
 
-    // Extract description from comments (strip @dev, @notice prefixes)
+    // Extract description and existing @param docs from comments
     let mut description_parts = Vec::new();
+    let mut param_docs: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut current_param: Option<String> = None;
 
     for comment in comments {
         let content = match comment {
@@ -403,6 +406,7 @@ fn build_enum_natspec_from_comments(enum_def: &CollectedEnum) -> Vec<IRElement> 
         for line in content.lines() {
             let trimmed = line.trim();
             if trimmed.starts_with("@dev ") {
+                current_param = None;
                 description_parts.push(
                     trimmed
                         .strip_prefix("@dev ")
@@ -411,6 +415,7 @@ fn build_enum_natspec_from_comments(enum_def: &CollectedEnum) -> Vec<IRElement> 
                         .to_string(),
                 );
             } else if trimmed.starts_with("@notice ") {
+                current_param = None;
                 description_parts.push(
                     trimmed
                         .strip_prefix("@notice ")
@@ -418,8 +423,29 @@ fn build_enum_natspec_from_comments(enum_def: &CollectedEnum) -> Vec<IRElement> 
                         .trim()
                         .to_string(),
                 );
+            } else if trimmed.starts_with("@param ") {
+                // Parse @param name description
+                if let Some(rest) = trimmed.strip_prefix("@param ") {
+                    let mut parts = rest.splitn(2, char::is_whitespace);
+                    if let Some(name) = parts.next() {
+                        let desc = parts.next().unwrap_or("").trim().to_string();
+                        param_docs.insert(name.to_string(), desc);
+                        current_param = Some(name.to_string());
+                    }
+                }
             } else if !trimmed.is_empty() && !trimmed.starts_with("@") {
-                description_parts.push(trimmed.to_string());
+                // Continuation line - append to current context
+                if let Some(ref param_name) = current_param {
+                    if let Some(existing) = param_docs.get_mut(param_name) {
+                        existing.push(' ');
+                        existing.push_str(trimmed);
+                    }
+                } else {
+                    description_parts.push(trimmed.to_string());
+                }
+            } else if trimmed.starts_with("@") {
+                // Other tag - reset current_param context
+                current_param = None;
             }
         }
     }
@@ -439,14 +465,22 @@ fn build_enum_natspec_from_comments(enum_def: &CollectedEnum) -> Vec<IRElement> 
     // Add description
     content.push(IRElement::group(text_with_word_breaks(&description)));
 
-    // Add @param for each enum value
+    // Add @param for each enum value - preserve existing docs or add TODO
     if !enum_def.values.is_empty() {
         content.push(IRElement::HardLineBreak);
         content.push(IRElement::HardLineBreak);
 
         for value in &enum_def.values {
             if let Some(value_name) = &value.element {
-                content.push(IRElement::text(&format!("@param {} TODO", value_name.name)));
+                if let Some(doc) = param_docs.get(&value_name.name) {
+                    if doc.is_empty() {
+                        content.push(IRElement::text(&format!("@param {} TODO", value_name.name)));
+                    } else {
+                        content.push(IRElement::text(&format!("@param {} {}", value_name.name, doc)));
+                    }
+                } else {
+                    content.push(IRElement::text(&format!("@param {} TODO", value_name.name)));
+                }
                 content.push(IRElement::HardLineBreak);
             }
         }

@@ -53,6 +53,8 @@ pub fn build_statement_ir_full(
                     then_stmt,
                     else_stmt.as_deref(),
                     &stmt.nested_statements,
+                    &stmt.nested_standalone_comments,
+                    &stmt.else_branch,
                     renames,
                     return_ctx,
                 )
@@ -328,6 +330,8 @@ fn build_if_ir_full(
     then_stmt: &Statement,
     else_stmt: Option<&Statement>,
     nested_statements: &Option<Vec<CommentedStatement>>,
+    nested_standalone_comments: &Option<Vec<Comment>>,
+    else_branch: &Option<Box<CommentedElseBranch>>,
     renames: &mut HashMap<String, String>,
     return_ctx: &mut ReturnVarContext,
 ) -> Vec<IRElement> {
@@ -366,6 +370,19 @@ fn build_if_ir_full(
                     block_ir.push(IRElement::HardLineBreak);
                 }
 
+                // Add standalone comments at end of block (before closing brace)
+                // These comments appear at the same indent level as }, describing the next branch
+                if let Some(standalone) = nested_standalone_comments {
+                    if !standalone.is_empty() {
+                        block_ir.push(IRElement::HardLineBreak);
+                        for comment in standalone {
+                            // Don't indent - these are at the same level as the closing brace
+                            block_ir.push(build_comment(comment));
+                            block_ir.push(IRElement::HardLineBreak);
+                        }
+                    }
+                }
+
                 block_ir.push(IRElement::text("}"));
                 ir.extend(block_ir);
             } else {
@@ -385,19 +402,75 @@ fn build_if_ir_full(
         }
     }
 
-    if let Some(else_s) = else_stmt {
+    // Handle else branch using the collected else_branch with comments
+    if let Some(else_br) = else_branch {
+        // Output comments that appear before the else keyword
+        if !else_br.leading_comments.is_empty() {
+            for comment in &else_br.leading_comments {
+                ir.push(IRElement::HardLineBreak);
+                ir.push(IRElement::indent(vec![build_comment(comment)]));
+            }
+        }
+
         ir.push(IRElement::text(" else "));
+
         // Handle else body based on its type
+        match &else_br.statement {
+            Statement::Block { .. } => {
+                // Use collected nested statements if available
+                if let Some(nested) = &else_br.nested_statements {
+                    ir.extend(format_block_full(nested, renames, return_ctx));
+                } else {
+                    ir.extend(format_statement_full(&else_br.statement, renames, return_ctx));
+                }
+            }
+            Statement::If(_, else_cond, else_then, else_else) => {
+                // Recursively handle else-if chain
+                // We need to find the CommentedStatement for this nested if
+                // For now, use the collected else_branch nested statements
+                if let Some(nested) = &else_br.nested_statements {
+                    // The nested if is the first (and only) statement
+                    if let Some(first_stmt) = nested.first() {
+                        ir.extend(build_statement_ir_full(first_stmt, renames, return_ctx));
+                    } else {
+                        ir.extend(format_statement_full(&else_br.statement, renames, return_ctx));
+                    }
+                } else {
+                    // Fall back: format the else-if without collected comments
+                    ir.extend(build_if_ir_full(
+                        else_cond,
+                        else_then,
+                        else_else.as_deref(),
+                        &None,
+                        &None,
+                        &None,
+                        renames,
+                        return_ctx,
+                    ));
+                }
+            }
+            _ => {
+                // Non-block else - wrap in braces for consistent style
+                let mut block_ir = vec![IRElement::text("{")];
+                block_ir.push(IRElement::HardLineBreak);
+                let stmt_ir = format_statement_full(&else_br.statement, renames, return_ctx);
+                block_ir.push(IRElement::indent(stmt_ir));
+                block_ir.push(IRElement::HardLineBreak);
+                block_ir.push(IRElement::text("}"));
+                ir.extend(block_ir);
+            }
+        }
+    } else if let Some(else_s) = else_stmt {
+        // Fallback: no collected else branch, use raw statement
+        ir.push(IRElement::text(" else "));
         match else_s {
             Statement::Block { .. } => {
                 ir.extend(format_statement_full(else_s, renames, return_ctx));
             }
             Statement::If(_, _, _, _) => {
-                // if-else chain - don't wrap
                 ir.extend(format_statement_full(else_s, renames, return_ctx));
             }
             _ => {
-                // Non-block else - wrap in braces for consistent style
                 let mut block_ir = vec![IRElement::text("{")];
                 block_ir.push(IRElement::HardLineBreak);
                 let stmt_ir = format_statement_full(else_s, renames, return_ctx);
