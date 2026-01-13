@@ -11,6 +11,8 @@ use std::collections::HashMap;
 /// Contains all source unit elements organized by type with associated comments.
 #[derive(Default, Debug, Clone)]
 pub struct CollectedElements {
+    /// The original source code (used for preserving number literal formatting)
+    pub source: String,
     /// Pragma directives (solidity version, experimental features, etc.)
     pub pragmas: Vec<CommentedElement<Box<PragmaDirective>>>,
     /// Import statements organized by source
@@ -39,6 +41,7 @@ impl CollectedElements {
     /// Creates a new empty `CollectedElements` instance.
     pub fn new() -> Self {
         Self {
+            source: String::new(),
             pragmas: Vec::new(),
             imports: Vec::new(),
             contracts: Vec::new(),

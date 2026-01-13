@@ -20,6 +20,9 @@ contract Test20 is
   ITest20,
   ERC20 {
 
+  /// A constant.
+  uint128 constant AUCTION_SUPPLY = 500_000000_000000000000000000;
+
   /**
     An enum for representing the decoded message sender portion of the contract
     creation salt. This is used for checking for permissioned deploy protection.

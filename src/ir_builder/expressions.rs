@@ -2,7 +2,44 @@
 
 use super::ir::IRElement;
 use solang_parser::pt::*;
+use std::cell::RefCell;
 use std::collections::HashMap;
+
+thread_local! {
+    /// Thread-local storage for the source code during IR building.
+    /// Used to preserve original number literal formatting (underscores).
+    static SOURCE: RefCell<String> = RefCell::new(String::new());
+}
+
+/// Set the source code for number literal preservation during IR building.
+pub fn set_source_for_formatting(source: &str) {
+    SOURCE.with(|s| {
+        *s.borrow_mut() = source.to_string();
+    });
+}
+
+/// Clear the source code after IR building is complete.
+pub fn clear_source_for_formatting() {
+    SOURCE.with(|s| {
+        s.borrow_mut().clear();
+    });
+}
+
+/// Extract text from the source at the given location.
+fn extract_source_text(loc: &Loc) -> Option<String> {
+    if let Loc::File(_, start, end) = loc {
+        SOURCE.with(|s| {
+            let source = s.borrow();
+            if source.is_empty() || *end > source.len() {
+                None
+            } else {
+                Some(source[*start..*end].to_string())
+            }
+        })
+    } else {
+        None
+    }
+}
 
 /// Normalize a parameter name to have a leading underscore
 pub fn normalize_param_name(name: &str) -> String {
@@ -164,7 +201,7 @@ pub fn format_expression_with_renames(
             }
         }
         Expression::BoolLiteral(_, val) => IRElement::text(if *val { "true" } else { "false" }),
-        Expression::NumberLiteral(_, num, exp, unit) => format_number_literal(num, exp, unit),
+        Expression::NumberLiteral(loc, num, exp, unit) => format_number_literal(loc, num, exp, unit),
         Expression::HexNumberLiteral(_, hex, _) => IRElement::text(hex),
         Expression::StringLiteral(strings) => format_string_literal(strings),
         Expression::HexLiteral(hexes) => format_hex_literal(hexes),
@@ -527,7 +564,14 @@ pub fn format_type(ty: &Type) -> IRElement {
     }
 }
 
-fn format_number_literal(num: &str, exp: &str, unit: &Option<Identifier>) -> IRElement {
+fn format_number_literal(loc: &Loc, num: &str, exp: &str, unit: &Option<Identifier>) -> IRElement {
+    // Try to extract the original text from source to preserve underscores
+    if let Some(original) = extract_source_text(loc) {
+        // The original includes the full number literal as written in source
+        return IRElement::text(original);
+    }
+
+    // Fallback to reconstructed text (without underscores)
     let mut text = num.to_string();
     if !exp.is_empty() {
         text.push_str(exp);

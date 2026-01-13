@@ -364,6 +364,9 @@ pub fn extract_contract_name_from_path(path: &str) -> String {
 /// A new CollectedElements with all elements reordered
 pub fn order_collected_elements(elements: &CollectedElements) -> CollectedElements {
     CollectedElements {
+        // Preserve source for number literal formatting
+        source: elements.source.clone(),
+
         // Order pragmas
         pragmas: order_pragmas(&elements.pragmas),
 

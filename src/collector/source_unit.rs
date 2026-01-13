@@ -274,5 +274,8 @@ pub fn collect_source_unit(
     // Any remaining comments are truly standalone
     collected.standalone_comments = remaining_comments;
 
+    // Store the original source for number literal preservation
+    collected.source = source.to_string();
+
     collected
 }

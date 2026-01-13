@@ -54,6 +54,9 @@ pub fn text_with_word_breaks(s: &str) -> Vec<IRElement> {
 
 /// Build IR from collected source unit elements
 pub fn build_ir(collected: &CollectedElements) -> Vec<IRElement> {
+    // Set up source for number literal preservation
+    expressions::set_source_for_formatting(&collected.source);
+
     // First, reorder the elements according to our rules
     let ordered = order_collected_elements(collected);
 
@@ -259,6 +262,9 @@ pub fn build_ir(collected: &CollectedElements) -> Vec<IRElement> {
             ir.push(build_comment(comment));
         }
     }
+
+    // Clear the source after building IR
+    expressions::clear_source_for_formatting();
 
     ir
 }

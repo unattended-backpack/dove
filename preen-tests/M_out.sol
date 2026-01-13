@@ -34,6 +34,9 @@ contract Test20 is
     Random
   }
 
+  /// A constant.
+  uint128 constant AUCTION_SUPPLY = 500_000000_000000000000000000;
+
   /**
     Return the name of the token.
 
