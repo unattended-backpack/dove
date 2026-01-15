@@ -135,5 +135,56 @@ contract Test20 is
       return (SenderBytes.Random, RedeployProtectionFlag.Unspecified);
     }
   }
+
+  /**
+    Aggregate calls with value and configurable failure handling.
+
+    @param _calls The calls to execute.
+
+    @return _ An array of the `Result`s containing the success status and return
+      data from each call.
+  */
+  function aggregate3Value (
+    Call3Value[] calldata _calls
+  ) public payable returns (Result[] memory) {
+    uint256 _accumulator;
+    Result[] memory _results = new Result[](_calls.length);
+    for (uint256 i = 0; i < _calls.length; i++) {
+      uint256 _callValue = _calls[i].value;
+      unchecked { _accumulator += _callValue; }
+      (bool _success, bytes memory _ret) = _calls[i].target.call{
+        value: _callValue
+      }(
+        _calls[i].callData
+      );
+
+      // @custom:preserve
+      // Revert if a call fails and failure is not allowed.
+      // `allowFailure` := calldataload(add(calli, 0x20))
+      // `success` := mload(result)
+      // mstore 0x00 is `bytes32(bytes4(keccak256("Error(string)")))`
+      // mstore 0x04 is the data offset
+      // mstore 0x24 is the length of the following revert string
+      // mstore 0x44 is `bytes32(abi.encodePacked("Multicall3: call failed"))`
+      assembly {
+        if iszero(or(calldataload(add(calli, 0x20)), mload(result))) {
+          mstore(0x00,
+          0x08c379a000000000000000000000000000000000000000000000000000000000)
+          mstore(0x04,
+          0x0000000000000000000000000000000000000000000000000000000000000020)
+          mstore(0x24,
+          0x0000000000000000000000000000000000000000000000000000000000000017)
+          mstore(0x44,
+          0x4d756c746963616c6c333a2063616c6c206661696c6564000000000000000000)
+          revert(0x00, 0x64)
+        }
+      }
+      _results[i] = Result(_success, _ret);
+    }
+
+    // Ensure the entire `msg.value` is accounted for and return.
+    require(msg.value == valAccumulator, "Multicall3: value mismatch");
+    return _results;
+  }
 }
 

@@ -81,10 +81,10 @@ pub fn build_statement_ir_full(
                     return_ctx,
                 )
             }
-            Statement::Block { .. } => {
+            Statement::Block { unchecked, .. } => {
                 // Handle block with collected statements
                 if let Some(nested) = &stmt.nested_statements {
-                    format_block_full(nested, renames, return_ctx)
+                    format_block_full_with_unchecked(nested, *unchecked, renames, return_ctx)
                 } else {
                     format_statement_full(&stmt.statement, renames, return_ctx)
                 }
@@ -119,9 +119,20 @@ pub fn format_statement_full(
     let fmt = |e: &Expression| format_expression_with_renames(e, renames);
 
     match stmt {
-        Statement::Block { statements, .. } => {
+        Statement::Block {
+            statements,
+            unchecked,
+            ..
+        } => {
             // Convert Vec<Statement> to block format
-            let mut ir = vec![IRElement::text("{")];
+            let mut ir = vec![];
+
+            // Add "unchecked " prefix if this is an unchecked block
+            if *unchecked {
+                ir.push(IRElement::text("unchecked "));
+            }
+
+            ir.push(IRElement::text("{"));
 
             if !statements.is_empty() {
                 for stmt in statements {
@@ -262,7 +273,23 @@ fn format_block_full(
     renames: &mut HashMap<String, String>,
     return_ctx: &mut ReturnVarContext,
 ) -> Vec<IRElement> {
-    let mut ir = vec![IRElement::text("{")];
+    format_block_full_with_unchecked(statements, false, renames, return_ctx)
+}
+
+fn format_block_full_with_unchecked(
+    statements: &[CommentedStatement],
+    unchecked: bool,
+    renames: &mut HashMap<String, String>,
+    return_ctx: &mut ReturnVarContext,
+) -> Vec<IRElement> {
+    let mut ir = vec![];
+
+    // Add "unchecked " prefix if this is an unchecked block
+    if unchecked {
+        ir.push(IRElement::text("unchecked "));
+    }
+
+    ir.push(IRElement::text("{"));
 
     if !statements.is_empty() {
         for stmt in statements {
