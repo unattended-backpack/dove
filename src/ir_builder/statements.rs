@@ -1046,7 +1046,8 @@ fn format_collected_yul_block_with_renames(
         for (_, item) in items {
             match item {
                 YulBlockItem::Statement(stmt) => {
-                    if !stmt.leading_comments.is_empty() && !content.is_empty() {
+                    // Add blank line before statements with leading comments
+                    if !stmt.leading_comments.is_empty() {
                         content.push(IRElement::HardLineBreak);
                     }
                     content.extend(build_yul_statement_ir_with_renames(stmt, renames));
@@ -1079,8 +1080,167 @@ fn build_yul_statement_ir_with_renames(
     renames: &mut HashMap<String, String>,
 ) -> Vec<IRElement> {
     with_comments(&stmt.leading_comments, &stmt.trailing_comments, || {
-        format_yul_statement_with_renames(&stmt.statement, renames)
+        // For statements with nested blocks (if, for, etc.), use the collected nested statements
+        match &stmt.statement {
+            YulStatement::If(_, cond, _block) => {
+                // Use collected nested statements if available
+                if let Some(nested) = &stmt.nested_statements {
+                    format_yul_if_with_collected(cond, nested, &stmt.nested_standalone_comments, renames)
+                } else {
+                    format_yul_statement_with_renames(&stmt.statement, renames)
+                }
+            }
+            YulStatement::For(yul_for) => {
+                // Use collected nested statements for the execution block if available
+                if let Some(nested) = &stmt.nested_statements {
+                    format_yul_for_with_collected(yul_for, nested, &stmt.nested_standalone_comments, renames)
+                } else {
+                    format_yul_statement_with_renames(&stmt.statement, renames)
+                }
+            }
+            _ => format_yul_statement_with_renames(&stmt.statement, renames)
+        }
     })
+}
+
+/// Format a YUL if statement using collected nested statements (preserves comments)
+fn format_yul_if_with_collected(
+    cond: &YulExpression,
+    nested_statements: &[CommentedYulStatement],
+    nested_standalone_comments: &Option<Vec<Comment>>,
+    renames: &mut HashMap<String, String>,
+) -> Vec<IRElement> {
+    let mut ir = vec![
+        IRElement::text("if"),
+        IRElement::text(" "),
+        format_yul_expression_with_renames(cond, renames),
+        IRElement::text(" "),
+    ];
+
+    // Format the block using collected statements
+    ir.extend(format_collected_yul_block_contents(
+        nested_statements,
+        nested_standalone_comments,
+        renames,
+    ));
+
+    ir
+}
+
+/// Format a YUL for statement using collected nested statements (preserves comments in execution block)
+fn format_yul_for_with_collected(
+    yul_for: &YulFor,
+    nested_statements: &[CommentedYulStatement],
+    nested_standalone_comments: &Option<Vec<Comment>>,
+    renames: &mut HashMap<String, String>,
+) -> Vec<IRElement> {
+    let mut ir = vec![IRElement::text("for"), IRElement::text(" ")];
+
+    // Format init block (raw - usually simple)
+    ir.extend(format_yul_block_with_renames(&yul_for.init_block, renames));
+    ir.push(IRElement::text(" "));
+
+    // Format condition
+    ir.push(format_yul_expression_with_renames(&yul_for.condition, renames));
+    ir.push(IRElement::text(" "));
+
+    // Format post block (raw - usually simple)
+    ir.extend(format_yul_block_with_renames(&yul_for.post_block, renames));
+    ir.push(IRElement::text(" "));
+
+    // Format execution block using collected statements
+    ir.extend(format_collected_yul_block_contents(
+        nested_statements,
+        nested_standalone_comments,
+        renames,
+    ));
+
+    ir
+}
+
+/// Format the contents of a YUL block from collected statements
+fn format_collected_yul_block_contents(
+    statements: &[CommentedYulStatement],
+    standalone_comments: &Option<Vec<Comment>>,
+    renames: &mut HashMap<String, String>,
+) -> Vec<IRElement> {
+    let mut ir = vec![IRElement::text("{")];
+
+    if !statements.is_empty() || standalone_comments.as_ref().map_or(false, |c| !c.is_empty()) {
+        ir.push(IRElement::HardLineBreak);
+
+        // Build a list of (position, item) for sorting
+        let mut items: Vec<(usize, YulBlockItem)> = Vec::new();
+
+        // Add statements with their positions
+        for stmt in statements {
+            let pos = get_yul_statement_start(&stmt.statement);
+            items.push((pos, YulBlockItem::Statement(stmt)));
+        }
+
+        // Group consecutive standalone comments and add with position of first
+        if let Some(comments) = standalone_comments {
+            if !comments.is_empty() {
+                let mut comment_groups: Vec<Vec<&Comment>> = Vec::new();
+                let mut current_group: Vec<&Comment> = Vec::new();
+
+                for comment in comments {
+                    if current_group.is_empty() {
+                        current_group.push(comment);
+                    } else {
+                        let last_end = get_loc_start(&current_group.last().unwrap().loc()) + 50;
+                        let curr_start = get_loc_start(&comment.loc());
+                        if curr_start < last_end + 200 {
+                            current_group.push(comment);
+                        } else {
+                            comment_groups.push(current_group);
+                            current_group = vec![comment];
+                        }
+                    }
+                }
+                if !current_group.is_empty() {
+                    comment_groups.push(current_group);
+                }
+
+                for group in comment_groups {
+                    let pos = get_loc_start(&group[0].loc());
+                    items.push((pos, YulBlockItem::StandaloneComments(group)));
+                }
+            }
+        }
+
+        items.sort_by_key(|(pos, _)| *pos);
+
+        let mut content = vec![];
+        for (_, item) in items {
+            match item {
+                YulBlockItem::Statement(stmt) => {
+                    // Add blank line before statements with leading comments
+                    if !stmt.leading_comments.is_empty() {
+                        content.push(IRElement::HardLineBreak);
+                    }
+                    content.extend(build_yul_statement_ir_with_renames(stmt, renames));
+                    content.push(IRElement::HardLineBreak);
+                }
+                YulBlockItem::StandaloneComments(comments) => {
+                    if !content.is_empty() {
+                        content.push(IRElement::HardLineBreak);
+                    }
+                    content.extend(build_combined_comment(&comments));
+                }
+            }
+        }
+
+        if !content.is_empty() {
+            content.pop();
+        }
+
+        ir.push(IRElement::indent(content));
+        ir.push(IRElement::HardLineBreak);
+    }
+
+    ir.push(IRElement::text("}"));
+    ir
 }
 
 /// Format a YUL statement with variable renames applied
