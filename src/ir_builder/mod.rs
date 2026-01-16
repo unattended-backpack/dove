@@ -319,10 +319,31 @@ fn needs_preceding_blank_line(
                 // Don't add newline after pragmas/imports/using - they already add trailing blank lines
                 !ordered.types.is_empty()
             }
-            ElementType::Struct => has_preceding_elements_struct(ordered),
-            ElementType::Error => has_preceding_elements_error(ordered),
-            ElementType::Variable => has_preceding_elements_variable(ordered),
-            ElementType::Function => has_preceding_elements_function(ordered),
+            ElementType::Struct => {
+                // Don't add newline after pragmas/imports/using - they already add trailing blank lines
+                !ordered.types.is_empty() || !ordered.enums.is_empty()
+            }
+            ElementType::Error => {
+                // Don't add newline after pragmas/imports/using - they already add trailing blank lines
+                !ordered.types.is_empty()
+                    || !ordered.enums.is_empty()
+                    || !ordered.structs.is_empty()
+            }
+            ElementType::Variable => {
+                // Don't add newline after pragmas/imports/using - they already add trailing blank lines
+                !ordered.types.is_empty()
+                    || !ordered.enums.is_empty()
+                    || !ordered.structs.is_empty()
+                    || !ordered.errors.is_empty()
+            }
+            ElementType::Function => {
+                // Don't add newline after pragmas/imports/using - they already add trailing blank lines
+                !ordered.types.is_empty()
+                    || !ordered.enums.is_empty()
+                    || !ordered.structs.is_empty()
+                    || !ordered.errors.is_empty()
+                    || !ordered.variables.is_empty()
+            }
             ElementType::Contract => {
                 // Don't add blank line if only pragmas/imports/using before us
                 // (they already add their own blank lines)
@@ -436,14 +457,38 @@ fn has_any_preceding_element(
                 || !ordered.using_directives.is_empty()
         }
         ElementType::Enum => {
-            // Only add blank line if there are types before (not just pragmas/imports/using)
+            // Only add newline if there are types before (not just pragmas/imports/using)
             // Pragmas, imports, using already provide their own trailing newlines
             index > 0 || !ordered.types.is_empty()
         }
-        ElementType::Struct => index > 0 || has_preceding_elements_struct(ordered),
-        ElementType::Error => index > 0 || has_preceding_elements_error(ordered),
-        ElementType::Variable => index > 0 || has_preceding_elements_variable(ordered),
-        ElementType::Function => index > 0 || has_preceding_elements_function(ordered),
+        ElementType::Struct => {
+            // Only add newline if there are types/enums before
+            index > 0 || !ordered.types.is_empty() || !ordered.enums.is_empty()
+        }
+        ElementType::Error => {
+            // Only add newline if there are types/enums/structs before
+            index > 0
+                || !ordered.types.is_empty()
+                || !ordered.enums.is_empty()
+                || !ordered.structs.is_empty()
+        }
+        ElementType::Variable => {
+            // Only add newline if there are types/enums/structs/errors before
+            index > 0
+                || !ordered.types.is_empty()
+                || !ordered.enums.is_empty()
+                || !ordered.structs.is_empty()
+                || !ordered.errors.is_empty()
+        }
+        ElementType::Function => {
+            // Only add newline if there are types/enums/structs/errors/variables before
+            index > 0
+                || !ordered.types.is_empty()
+                || !ordered.enums.is_empty()
+                || !ordered.structs.is_empty()
+                || !ordered.errors.is_empty()
+                || !ordered.variables.is_empty()
+        }
         ElementType::Contract => {
             // For contracts, only add newline if there are elements other than pragma/import/using
             // (those already add their own trailing blank lines)

@@ -4,6 +4,9 @@ pragma solidity 0.8.33;
 import { ITest20 } from "./interfaces/ITest20.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 
+/// This error is thrown when no valid signer credentials are provided.
+error NoSignerCredentials ();
+
 /**
   @custom:benediction DEVS BENEDICAT ET PROTEGAT CONTRACTVM MEVM
   @title Test20
