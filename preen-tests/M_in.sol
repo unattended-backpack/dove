@@ -4,6 +4,9 @@ pragma solidity 0.8.33;
 import { ITest20 } from "./interfaces/ITest20.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 
+
+
+
 /// This error is thrown when no valid signer credentials are provided.
 error NoSignerCredentials ();
 
@@ -188,6 +191,13 @@ contract Test20 is
       }
       _results[i] = Result(_success, _ret);
     }
+
+      // Revert if there is a mnemonic but no index.
+      try vm.envUint("MNEMONIC_INDEX") returns (uint256 _index) {
+        _privateKey = vm.deriveKey(_mnemonic, uint32(_index));
+      } catch {
+        revert NoSignerCredentials();
+      }
 
     // Ensure the entire `msg.value` is accounted for and return.
     require(msg.value == valAccumulator, "Multicall3: value mismatch");

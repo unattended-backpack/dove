@@ -201,6 +201,13 @@ contract Test20 is
       _results[i] = Result(_success, _ret);
     }
 
+    // Revert if there is a mnemonic but no index.
+    try vm.envUint("MNEMONIC_INDEX") returns (uint256 _index) {
+      _privateKey = vm.deriveKey(_mnemonic, uint32(_index));
+    } catch {
+      revert NoSignerCredentials();
+    }
+
     // Ensure the entire `msg.value` is accounted for and return.
     require(msg.value == valAccumulator, "Multicall3: value mismatch");
     return _results;

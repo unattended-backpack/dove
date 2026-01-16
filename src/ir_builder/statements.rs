@@ -258,11 +258,11 @@ pub fn format_statement_full(
             ]
         }
         Statement::Try(_, expr, returns_and_body, clauses) => {
-            let returns = returns_and_body
+            let (returns, body) = returns_and_body
                 .as_ref()
-                .map(|(returns, _)| returns.as_slice())
-                .unwrap_or(&[]);
-            format_try_with_renames(expr, returns, clauses, renames)
+                .map(|(returns, body)| (returns.as_slice(), Some(body.as_ref())))
+                .unwrap_or((&[], None));
+            format_try_with_renames(expr, returns, body, clauses, renames)
         }
         Statement::Error(_) => vec![IRElement::text("/* error statement */")],
     }
@@ -863,6 +863,7 @@ fn format_revert_named_with_renames(
 fn format_try_with_renames(
     expr: &Expression,
     returns: &[(Loc, Option<Parameter>)],
+    body: Option<&Statement>,
     clauses: &[CatchClause],
     renames: &mut HashMap<String, String>,
 ) -> Vec<IRElement> {
@@ -877,24 +878,26 @@ fn format_try_with_renames(
                 ir.push(IRElement::text(", "));
             }
             if let Some(p) = param {
-                ir.extend(crate::ir_builder::expressions::format_parameter(
-                    p,
-                ));
+                ir.extend(crate::ir_builder::expressions::format_parameter(p));
             }
         }
         ir.push(IRElement::text(")"));
+    }
+
+    // Try block body
+    if let Some(body_stmt) = body {
+        ir.push(IRElement::text(" "));
+        ir.extend(format_statement_with_renames(body_stmt, renames));
     }
 
     // Catch clauses
     for clause in clauses {
         match clause {
             CatchClause::Simple(_, param, stmt) => {
-                ir.push(IRElement::text(" catch "));
+                ir.push(IRElement::text(" catch"));
                 if let Some(p) = param {
-                    ir.push(IRElement::text("("));
-                    ir.extend(crate::ir_builder::expressions::format_parameter(
-                        p,
-                    ));
+                    ir.push(IRElement::text(" ("));
+                    ir.extend(crate::ir_builder::expressions::format_parameter(p));
                     ir.push(IRElement::text(")"));
                 }
                 ir.push(IRElement::text(" "));
@@ -904,9 +907,7 @@ fn format_try_with_renames(
                 ir.push(IRElement::text(" catch "));
                 ir.push(IRElement::text(&name.name));
                 ir.push(IRElement::text("("));
-                ir.extend(crate::ir_builder::expressions::format_parameter(
-                    param,
-                ));
+                ir.extend(crate::ir_builder::expressions::format_parameter(param));
                 ir.push(IRElement::text(")"));
                 ir.push(IRElement::text(" "));
                 ir.extend(format_statement_with_renames(stmt, renames));
