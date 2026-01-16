@@ -663,7 +663,7 @@ fn format_array_subscript(array: &Expression, index: Option<&Expression>, rename
                     Type::DynamicBytes => "bytes[]".to_string(),
                     _ => {
                         // For complex types, fall back to default formatting
-                        let mut ir = vec![
+                        let ir = vec![
                             format_expression_with_renames(array, renames),
                             IRElement::text("["),
                             IRElement::text("]"),

@@ -209,7 +209,7 @@ pub fn collect_type_expression_comments(
     use crate::collector::utils::{get_loc_end, get_loc_range, get_loc_start};
 
     match ty {
-        Expression::Type(loc, type_expr) => {
+        Expression::Type(_loc, type_expr) => {
             match type_expr {
                 Type::Mapping {
                     loc: mapping_loc,

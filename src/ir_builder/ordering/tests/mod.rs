@@ -9,19 +9,6 @@ fn test_compare_versions() {
 }
 
 #[test]
-fn test_extract_contract_name_from_path() {
-    assert_eq!(
-        extract_contract_name_from_path("contracts/MyContract.sol"),
-        "MyContract"
-    );
-    assert_eq!(
-        extract_contract_name_from_path("MyContract.sol"),
-        "MyContract"
-    );
-    assert_eq!(extract_contract_name_from_path("MyContract"), "MyContract");
-}
-
-#[test]
 fn test_format_identifier_path() {
     let path = IdentifierPath {
         loc: Loc::Builtin,

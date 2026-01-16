@@ -131,7 +131,8 @@ fn build_variable_natspec_ir_with_type(
     }
 
     // Track if we've added any section (for blank line logic)
-    let mut has_previous_section = false;
+    // Description always adds content, so this starts true after the description block
+    let mut has_previous_section;
 
     // Add description
     if !description_lines.is_empty() {

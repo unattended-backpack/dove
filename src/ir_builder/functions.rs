@@ -12,7 +12,8 @@ use std::collections::{HashMap, HashSet};
 /// Information about a named return variable that needs conversion
 #[derive(Clone)]
 struct ReturnVarInfo {
-    /// Original name (e.g., "config_")
+    /// Original name (e.g., "config_") - stored for potential future use
+    #[allow(dead_code)]
     original_name: String,
     /// Transformed output name (e.g., "configOutput")
     output_name: String,

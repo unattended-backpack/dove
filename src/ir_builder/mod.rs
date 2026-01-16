@@ -406,44 +406,6 @@ fn has_elements_after_using(ordered: &CollectedElements) -> bool {
         || !ordered.contracts.is_empty()
 }
 
-fn has_preceding_elements_struct(ordered: &CollectedElements) -> bool {
-    !ordered.pragmas.is_empty()
-        || !ordered.imports.is_empty()
-        || !ordered.using_directives.is_empty()
-        || !ordered.types.is_empty()
-        || !ordered.enums.is_empty()
-}
-
-fn has_preceding_elements_error(ordered: &CollectedElements) -> bool {
-    !ordered.pragmas.is_empty()
-        || !ordered.imports.is_empty()
-        || !ordered.using_directives.is_empty()
-        || !ordered.types.is_empty()
-        || !ordered.enums.is_empty()
-        || !ordered.structs.is_empty()
-}
-
-fn has_preceding_elements_variable(ordered: &CollectedElements) -> bool {
-    !ordered.pragmas.is_empty()
-        || !ordered.imports.is_empty()
-        || !ordered.using_directives.is_empty()
-        || !ordered.types.is_empty()
-        || !ordered.enums.is_empty()
-        || !ordered.structs.is_empty()
-        || !ordered.errors.is_empty()
-}
-
-fn has_preceding_elements_function(ordered: &CollectedElements) -> bool {
-    !ordered.pragmas.is_empty()
-        || !ordered.imports.is_empty()
-        || !ordered.using_directives.is_empty()
-        || !ordered.types.is_empty()
-        || !ordered.enums.is_empty()
-        || !ordered.structs.is_empty()
-        || !ordered.errors.is_empty()
-        || !ordered.variables.is_empty()
-}
-
 fn has_any_preceding_element(
     ordered: &CollectedElements,
     element_type: ElementType,

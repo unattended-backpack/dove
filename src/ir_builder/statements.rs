@@ -919,7 +919,7 @@ fn format_try_with_renames(
 }
 
 fn format_assembly(
-    loc: &Loc,
+    _loc: &Loc,
     dialect: Option<&StringLiteral>,
     flags: Option<&Vec<StringLiteral>>,
     block: &YulBlock,

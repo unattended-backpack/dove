@@ -203,7 +203,7 @@ fn parse_struct_comments_custom(comments: &[Comment]) -> (String, HashMap<String
 /// Format NatSpec for structs using structured IR elements
 fn format_struct_natspec_ir(
     all_comments: &[Comment],
-    struct_name: &str,
+    _struct_name: &str,
     struct_fields: &[StructField],
 ) -> Vec<IRElement> {
     use crate::ir_builder::text_with_word_breaks;

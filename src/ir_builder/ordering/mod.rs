@@ -319,28 +319,6 @@ pub fn format_identifier_path(path: &IdentifierPath) -> String {
         .join(".")
 }
 
-/// Extract contract name from file path
-///
-/// Utility function to derive contract names from file paths by removing
-/// directory structure and .sol extension.
-///
-/// # Arguments
-///
-/// * `path` - The file path to process
-///
-/// # Returns
-///
-/// Extracted contract name
-pub fn extract_contract_name_from_path(path: &str) -> String {
-    // Extract filename from path
-    let filename = path.split('/').last().unwrap_or(path);
-
-    // Remove .sol extension
-    let contract_name = filename.strip_suffix(".sol").unwrap_or(filename);
-
-    contract_name.to_string()
-}
-
 /// Order all elements in CollectedElements according to established rules
 ///
 /// Applies comprehensive ordering to all source unit elements:
