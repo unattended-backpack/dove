@@ -44,6 +44,21 @@ contract Test20 is
   }
 
   /**
+    A double mapping from authorizer address to authorization nonce to whether
+    or not the authorization nonce may still be used in a transfer.
+
+    @custom:param _authorizer The address of an authorizer.
+    @custom:param _nonce The nonce for a particular authorization. This is a long parameter.
+
+    @custom:return _valid Whether or not the provided `_nonce` has been used for an authorized transfer or authorized cancel. If this is false, it means that `_nonce` can still be used for an authorized transfer.
+  */
+  mapping (
+    address _authorizer => mapping (
+      bytes32 _nonce => bool _valid
+    )
+  ) public authorizationState;
+
+  /**
     Return the name of the token.
 
     @return _ The name of the token.

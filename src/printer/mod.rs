@@ -85,12 +85,18 @@ impl Printer {
                 IRElement::Text(text) => self.print_text(text),
                 IRElement::SoftLineBreak => self.print_soft_line_break(cmd.mode, cmd.indent),
                 IRElement::SoftestLineBreak => self.print_softest_line_break(cmd.mode, cmd.indent),
+                IRElement::SoftLineBreakWithContinuation => {
+                    self.print_soft_line_break_with_continuation(cmd.mode, cmd.indent)
+                }
                 IRElement::HardLineBreak => self.print_hard_line_break(cmd.indent),
                 IRElement::Indent(elements) => {
                     // If there's a pending indent (from a HardLineBreak before this Indent),
                     // update it to the new indent level so content inside gets correct indentation
                     if self.pending_indent.is_some() {
-                        self.pending_indent = Some(cmd.indent + 1);
+                        let new_indent = cmd.indent + 1;
+                        self.pending_indent = Some(new_indent);
+                        // Also update current_col so group_fits uses correct column position
+                        self.current_col = new_indent * self.indent_width;
                     }
                     // Push children with increased indent, maintaining mode
                     for el in elements.iter().rev() {
@@ -189,6 +195,23 @@ impl Printer {
         }
     }
 
+    /// Print a soft line break with continuation indentation.
+    /// In flat mode, becomes a space. In break mode, adds a newline with
+    /// an extra level of indentation for continuation lines.
+    fn print_soft_line_break_with_continuation(&mut self, mode: PrintMode, indent: usize) {
+        match mode {
+            PrintMode::Flat => {
+                self.flush_pending_indent();
+                self.buffer.push(' ');
+                self.current_col += 1;
+            }
+            PrintMode::Break => {
+                // Add extra indentation for continuation (indent + 1)
+                self.print_hard_line_break(indent + 1);
+            }
+        }
+    }
+
     /// Print a hard line break with lazy indentation.
     /// The indentation is stored as pending and only emitted when actual content follows.
     fn print_hard_line_break(&mut self, indent: usize) {
@@ -281,6 +304,12 @@ impl Printer {
                 IRElement::SoftestLineBreak => {
                     // Disappears in flat mode
                 }
+                IRElement::SoftLineBreakWithContinuation => {
+                    // Same as SoftLineBreak in flat mode - becomes space
+                    self.flush_pending_indent();
+                    self.buffer.push(' ');
+                    self.current_col += 1;
+                }
                 IRElement::HardLineBreak => {
                     // Hard breaks still break even in flat mode
                     self.buffer.push('\n');
@@ -333,6 +362,28 @@ impl Printer {
                         } else {
                             // Doesn't fit - render as line break
                             self.print_hard_line_break(indent);
+                        }
+                    } else {
+                        // No content, just render as space
+                        self.flush_pending_indent();
+                        self.buffer.push(' ');
+                        self.current_col += 1;
+                    }
+                    skip_next_indent = false;
+                    i += 1;
+                }
+                IRElement::SoftLineBreakWithContinuation => {
+                    // Same as SoftLineBreak in fill mode but with extra indentation when breaking
+                    if let Some(chunk_len) = self.measure_next_chunk(&elements[i + 1..]) {
+                        // +1 for the space that becomes in flat mode
+                        if self.current_col + 1 + chunk_len <= self.max_width {
+                            // Fits - render as space
+                            self.flush_pending_indent();
+                            self.buffer.push(' ');
+                            self.current_col += 1;
+                        } else {
+                            // Doesn't fit - render as line break with continuation indent
+                            self.print_hard_line_break(indent + 1);
                         }
                     } else {
                         // No content, just render as space
@@ -412,7 +463,7 @@ impl Printer {
         for element in elements {
             match element {
                 IRElement::Text(text) => width += text.chars().count(),
-                IRElement::SoftLineBreak => break, // Stop at next break point
+                IRElement::SoftLineBreak | IRElement::SoftLineBreakWithContinuation => break, // Stop at next break point
                 IRElement::SoftestLineBreak => {
                     // SoftestLineBreak disappears in flat mode, continue measuring
                 }
@@ -446,7 +497,7 @@ impl Printer {
         for element in elements {
             match element {
                 IRElement::Text(text) => width += text.chars().count(),
-                IRElement::SoftLineBreak => width += 1, // space in flat mode
+                IRElement::SoftLineBreak | IRElement::SoftLineBreakWithContinuation => width += 1, // space in flat mode
                 IRElement::SoftestLineBreak => {}       // nothing in flat mode
                 IRElement::HardLineBreak => break,      // stop at hard break
                 IRElement::Group(children) | IRElement::Indent(children) => {
@@ -513,7 +564,7 @@ fn check_flat_layout_fits(
             IRElement::Text(s) => {
                 current_col += s.chars().count(); // Unicode-safe width
             }
-            IRElement::SoftLineBreak => {
+            IRElement::SoftLineBreak | IRElement::SoftLineBreakWithContinuation => {
                 // In flat mode, soft line break becomes single space
                 current_col += 1;
             }

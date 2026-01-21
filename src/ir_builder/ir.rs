@@ -29,6 +29,11 @@ pub enum IRElement {
     /// Use this when you don't want a space when the group stays on one line.
     SoftestLineBreak,
 
+    /// Conditional line break with continuation indentation - becomes a space if
+    /// the content fits on one line, or a newline with additional 2-space indentation
+    /// for wrapped continuation lines. Used for NatSpec tag descriptions.
+    SoftLineBreakWithContinuation,
+
     /// A formatting group that should be kept on one line if possible.
     /// If the group's total width exceeds the line limit, all SoftLineBreaks
     /// within the group will be converted to actual line breaks.

@@ -151,7 +151,7 @@ fn build_variable_natspec_ir_with_type(
             content_lines.push(IRElement::HardLineBreak);
         }
         for tag in &param_tags {
-            content_lines.push(IRElement::text(tag));
+            content_lines.extend(format_tag_with_wrapping(tag));
             content_lines.push(IRElement::HardLineBreak);
         }
         content_lines.pop();
@@ -168,7 +168,7 @@ fn build_variable_natspec_ir_with_type(
             content_lines.push(IRElement::HardLineBreak);
         }
         for tag in &return_tags {
-            content_lines.push(IRElement::text(tag));
+            content_lines.extend(format_tag_with_wrapping(tag));
             content_lines.push(IRElement::HardLineBreak);
         }
         content_lines.pop();
@@ -202,6 +202,47 @@ fn count_mapping_params(ty: &Expression) -> (usize, usize) {
         }
         _ => (0, 0), // Non-mapping types don't need param/return docs (only mappings do)
     }
+}
+
+/// Format a NatSpec tag (like @param or @return) with word wrapping
+/// The tag prefix and parameter name stay on the first line, description words can wrap
+/// with continuation indentation (2 spaces)
+fn format_tag_with_wrapping(tag: &str) -> Vec<IRElement> {
+    // Parse the tag: "@tag name description..."
+    // We need to find where the description starts (after the second word for @param/@return)
+    let parts: Vec<&str> = tag.splitn(3, ' ').collect();
+
+    if parts.len() < 3 {
+        // No description to wrap, just return as text
+        return vec![IRElement::text(tag)];
+    }
+
+    // parts[0] = "@param" or "@custom:param" etc.
+    // parts[1] = parameter name
+    // parts[2] = description (may contain multiple words)
+    let prefix = format!("{} {}", parts[0], parts[1]);
+    let description = parts[2];
+
+    let words: Vec<&str> = description.split_whitespace().collect();
+    if words.is_empty() {
+        return vec![IRElement::text(&prefix)];
+    }
+
+    let mut inner = vec![IRElement::text(&prefix)];
+
+    // Add description words with soft line breaks that include continuation indent
+    for (i, word) in words.iter().enumerate() {
+        if i == 0 {
+            inner.push(IRElement::text(" "));
+        } else {
+            // SoftLineBreak with continuation indent (2 spaces)
+            inner.push(IRElement::SoftLineBreakWithContinuation);
+        }
+        inner.push(IRElement::text(*word));
+    }
+
+    // Wrap in a Group so the printer uses fill logic for word wrapping
+    vec![IRElement::group(inner)]
 }
 
 /// Build IR for a pragma directive

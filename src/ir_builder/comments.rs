@@ -130,6 +130,61 @@ fn build_comment_internal(comment: &Comment, strip_notice: bool) -> IRElement {
     }
 }
 
+/// Check if a tag is a param/return tag that should have wrapping applied
+fn is_param_or_return_tag(tag: &str) -> bool {
+    tag.starts_with("@param ")
+        || tag.starts_with("@return ")
+        || tag.starts_with("@custom:param ")
+        || tag.starts_with("@custom:return ")
+}
+
+/// Format a NatSpec tag (like @param or @return) with word wrapping
+/// The tag prefix and parameter name stay on the first line, description words can wrap
+/// with continuation indentation (2 spaces)
+/// Only applies to @param/@return tags - other tags are returned as plain text
+fn format_tag_with_wrapping(tag: &str) -> Vec<IRElement> {
+    // Only apply wrapping to @param and @return tags (which have name + description)
+    if !is_param_or_return_tag(tag) {
+        return vec![IRElement::text(tag)];
+    }
+
+    // Parse the tag: "@tag name description..."
+    // We need to find where the description starts (after the second word for @param/@return)
+    let parts: Vec<&str> = tag.splitn(3, ' ').collect();
+
+    if parts.len() < 3 {
+        // No description to wrap, just return as text
+        return vec![IRElement::text(tag)];
+    }
+
+    // parts[0] = "@param" or "@custom:param" etc.
+    // parts[1] = parameter name
+    // parts[2] = description (may contain multiple words)
+    let prefix = format!("{} {}", parts[0], parts[1]);
+    let description = parts[2];
+
+    let words: Vec<&str> = description.split_whitespace().collect();
+    if words.is_empty() {
+        return vec![IRElement::text(&prefix)];
+    }
+
+    let mut inner = vec![IRElement::text(&prefix)];
+
+    // Add description words with soft line breaks that include continuation indent
+    for (i, word) in words.iter().enumerate() {
+        if i == 0 {
+            inner.push(IRElement::text(" "));
+        } else {
+            // SoftLineBreak with continuation indent (2 spaces)
+            inner.push(IRElement::SoftLineBreakWithContinuation);
+        }
+        inner.push(IRElement::text(*word));
+    }
+
+    // Wrap in a Group so the printer uses fill logic for word wrapping
+    vec![IRElement::group(inner)]
+}
+
 /// Build structured IR for a NatSpec block comment
 pub fn build_natspec_comment_ir(content: &str) -> Vec<IRElement> {
     let mut ir = vec![];
@@ -150,23 +205,56 @@ pub fn build_natspec_comment_ir(content: &str) -> Vec<IRElement> {
     // Start comment block
     ir.push(IRElement::text("/**"));
 
-    // Parse content line by line - HardLineBreak at start ensures first line gets indented
-    let mut content_lines = vec![IRElement::HardLineBreak];
+    // Parse content line by line, combining continuation lines with their tags
+    // First pass: collect lines and identify which are tag continuations
     let lines: Vec<&str> = content.lines().collect();
+    let mut combined_lines: Vec<(bool, String)> = Vec::new(); // (is_tag, content)
 
-    for line in lines {
-        let trimmed = line.trim();
+    let mut i = 0;
+    while i < lines.len() {
+        let trimmed = lines[i].trim();
 
         if trimmed.is_empty() {
             // Blank line
-            content_lines.push(IRElement::HardLineBreak);
+            combined_lines.push((false, String::new()));
+            i += 1;
         } else if trimmed.starts_with("@") {
-            // Tag line - don't wrap
-            content_lines.push(IRElement::text(trimmed));
+            // Start of a tag - collect continuation lines
+            let mut tag_text = trimmed.to_string();
+            i += 1;
+
+            // Check for continuation lines (non-empty, not starting with @, not after blank)
+            while i < lines.len() {
+                let next_trimmed = lines[i].trim();
+                if next_trimmed.is_empty() || next_trimmed.starts_with("@") {
+                    break;
+                }
+                // This is a continuation line - append it to the tag
+                tag_text.push(' ');
+                tag_text.push_str(next_trimmed);
+                i += 1;
+            }
+            combined_lines.push((true, tag_text));
+        } else {
+            // Description text
+            combined_lines.push((false, trimmed.to_string()));
+            i += 1;
+        }
+    }
+
+    // Second pass: build IR from combined lines
+    let mut content_lines = vec![IRElement::HardLineBreak];
+    for (is_tag, text) in combined_lines {
+        if text.is_empty() {
+            // Blank line
+            content_lines.push(IRElement::HardLineBreak);
+        } else if is_tag {
+            // Tag line - use wrapping for long tags
+            content_lines.extend(format_tag_with_wrapping(&text));
             content_lines.push(IRElement::HardLineBreak);
         } else {
             // Description text - allow wrapping
-            content_lines.push(IRElement::group(text_with_word_breaks(trimmed)));
+            content_lines.push(IRElement::group(text_with_word_breaks(&text)));
             content_lines.push(IRElement::HardLineBreak);
         }
     }
