@@ -342,6 +342,10 @@ impl Printer {
                     let is_terminator = text == ";" || text == ");" || text == "})";
                     if is_terminator || self.current_col + text_len <= self.max_width {
                         self.print_text(text);
+                    } else if self.pending_indent.is_some() {
+                        // There's already a pending line break - don't add another one,
+                        // just print the text (which will flush the pending indent)
+                        self.print_text(text);
                     } else {
                         // Doesn't fit - break to new line first
                         self.print_hard_line_break(indent);
