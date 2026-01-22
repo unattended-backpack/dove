@@ -792,9 +792,39 @@ fn build_function_definition(func: &CollectedFunction) -> Vec<IRElement> {
     // the line limit, the returns clause will break appropriately.
     let mut signature_tail = vec![];
 
-    for attr in &func.definition.element.attributes {
-        signature_tail.push(IRElement::text(" "));
-        signature_tail.push(format_function_attribute(attr, &param_renames));
+    // Determine if we have a body and opening brace
+    let has_body = func.definition.element.body.is_some();
+    let is_empty_body = func.body_statements.is_empty()
+        || (func.body_statements.len() == 1
+            && matches!(&func.body_statements[0].statement, Statement::Block { statements, .. } if statements.is_empty()));
+    let has_returns = !func.definition.element.returns.is_empty();
+
+    // Build attributes with continuation break support. Wrap in a Group so that:
+    // - When attrs fit on line with function name, render flat (space before attrs)
+    // - When attrs DON'T fit, break with continuation indent before attrs
+    // Include the opening brace in the attrs group when there's no returns clause,
+    // so that `public {` stays together and breaks as a unit.
+    if !func.definition.element.attributes.is_empty() {
+        let mut attrs_content = vec![];
+        for (i, attr) in func.definition.element.attributes.iter().enumerate() {
+            if i > 0 {
+                attrs_content.push(IRElement::text(" "));
+            }
+            attrs_content.push(format_function_attribute(attr, &param_renames));
+        }
+        // Include opening brace with attrs when no returns clause
+        if !has_returns && has_body {
+            if is_empty_body {
+                attrs_content.push(IRElement::text(" { }"));
+            } else {
+                attrs_content.push(IRElement::text(" {"));
+            }
+        }
+        // SoftLineBreakWithContinuation becomes space in flat mode, or newline+indent when breaking
+        signature_tail.push(IRElement::group(vec![
+            IRElement::SoftLineBreakWithContinuation,
+            IRElement::group(attrs_content),
+        ]));
     }
 
     // Return parameters
@@ -824,13 +854,13 @@ fn build_function_definition(func: &CollectedFunction) -> Vec<IRElement> {
     }
 
     // Function body - include the opening brace in the signature group
-    // so the full line length is measured when deciding to break
-    let has_body = func.definition.element.body.is_some();
-    let is_empty_body = func.body_statements.is_empty()
-        || (func.body_statements.len() == 1
-            && matches!(&func.body_statements[0].statement, Statement::Block { statements, .. } if statements.is_empty()));
+    // so the full line length is measured when deciding to break.
+    // Only add here if we haven't already added it with the attrs (which happens
+    // when there are attrs but no returns clause).
+    let brace_already_added =
+        !func.definition.element.attributes.is_empty() && !has_returns && has_body;
 
-    if has_body {
+    if has_body && !brace_already_added {
         if is_empty_body {
             // Empty body: use "{ }" on single line
             signature_tail.push(IRElement::text(" { }"));

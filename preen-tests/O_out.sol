@@ -103,4 +103,50 @@ contract MockERC7739Signer {
       )
     );
   }
+
+  /// An ERC-7739 signer rejects signatures over the unwrapped hash.
+  function test_transferWithAuthorization_erc7739Signer_unwrappedHash_reverts ()
+    public {
+
+    // Create a smart contract signer that uses nested EIP-712.
+    address _signerAddress = address(new MockERC7739Signer(alice));
+
+    // Give tokens to the signer contract.
+    token.mint(_signerAddress, 100 ether);
+    bytes32 _nonce = bytes32(uint256(51));
+
+    // Sign the application hash directly (without wrapping) - this should fail.
+    bytes memory _signature =
+      _signTransferAuthorization(
+        ALICE_PK, _signerAddress, bob, 100 ether, block.timestamp - 1,
+        block.timestamp + 1 hours, _nonce
+      );
+    vm.expectRevert(IERC3009.InvalidSignature.selector);
+    token.transferWithAuthorization(
+      _signerAddress, bob, 100 ether, block.timestamp - 1,
+      block.timestamp + 1 hours, _nonce, _signature
+    );
+  }
+
+  /// A transfer exactly at validBefore timestamp is rejected.
+  function test_transferWithAuthorization_exactlyAtValidBefore_reverts ()
+    public {
+
+    // Warp forward to avoid underflow when computing validAfter.
+    vm.warp(2 hours);
+    uint256 _amount = 100 ether;
+    bytes32 _nonce = bytes32(uint256(63));
+    uint256 _validAfter = block.timestamp - 1 hours;
+    uint256 _validBefore = block.timestamp;
+    bytes memory _signature =
+      _signTransferAuthorization(
+        ALICE_PK, alice, bob, _amount, _validAfter, _validBefore, _nonce
+      );
+
+    // ERC-3009 requires block.timestamp < validBefore (strict inequality).
+    vm.expectRevert(IERC3009.AuthorizationExpired.selector);
+    token.transferWithAuthorization(
+      alice, bob, _amount, _validAfter, _validBefore, _nonce, _signature
+    );
+  }
 }
