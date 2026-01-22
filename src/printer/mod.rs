@@ -439,8 +439,10 @@ impl Printer {
                     // don't increment the indent level for this Indent
                     let effective_indent = if skip_next_indent { indent } else { indent + 1 };
                     // If there's a pending indent, update it to the new level
+                    // Also update current_col so group_fits uses correct column position
                     if self.pending_indent.is_some() {
                         self.pending_indent = Some(effective_indent);
+                        self.current_col = effective_indent * self.indent_width;
                     }
                     // Recursively handle indents with the effective indent level
                     self.print_fill(children, effective_indent);

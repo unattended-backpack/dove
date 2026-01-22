@@ -594,18 +594,22 @@ fn format_variable_definition_with_renames(
         }
     }
 
-    // Initializer - SoftestLineBreak before Indent means:
-    // - If we break after =, the expr is indented
-    // - If we don't break (greedy case with HardLineBreaks), no extra indent
+    // Initializer handling
+    // The expression and semicolon are grouped together so the fit check
+    // accounts for the semicolon (prevents off-by-one at 80 char limit)
     if let Some(init_expr) = init {
-        // Format initializer with the updated renames map
         let fmt = |e: &Expression| format_expression_with_renames(e, renames);
         ir.push(IRElement::text(" = "));
         ir.push(IRElement::SoftestLineBreak);
-        ir.push(IRElement::indent(vec![fmt(init_expr)]));
+        // Group the expression with its semicolon so they're checked together
+        ir.push(IRElement::indent(vec![IRElement::group(vec![
+            fmt(init_expr),
+            IRElement::text(";"),
+        ])]));
+    } else {
+        ir.push(IRElement::text(";"));
     }
 
-    ir.push(IRElement::text(";"));
     vec![IRElement::group(ir)]
 }
 
