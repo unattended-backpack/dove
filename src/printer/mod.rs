@@ -241,21 +241,59 @@ impl Printer {
             // Text has intentional newlines - preserve them in block comment
             let block_open = if is_doc { "/**" } else { "/*" };
             self.print_text(block_open);
-            self.print_hard_line_break(indent + 1);
 
-            // Process line by line, preserving original structure
-            for (i, line) in text.lines().enumerate() {
-                if i > 0 {
-                    self.print_hard_line_break(indent + 1);
+            // Check for @custom:preserve - if present, preserve all original
+            // whitespace (including relative indentation) exactly as-is.
+            let is_preserve = text.lines().any(|l| {
+                let t = l.trim();
+                t == "@custom:preserve" || t.starts_with("@custom:preserve ")
+            });
+
+            if is_preserve {
+                // Build the entire block output as a single string so that
+                // print_hard_line_break's trailing-whitespace stripping does
+                // not alter preserved content.
+                let indent_str =
+                    " ".repeat((indent + 1) * self.indent_width);
+                let close_indent_str =
+                    " ".repeat(indent * self.indent_width);
+
+                let mut output = String::new();
+                for (i, line) in text.lines().enumerate() {
+                    output.push('\n');
+                    if i == 0 {
+                        // First line was trimmed by build_comment_internal;
+                        // restore the base indentation.
+                        output.push_str(&indent_str);
+                        output.push_str(line);
+                    } else {
+                        // Subsequent lines retain their original source
+                        // indentation — output as-is.
+                        output.push_str(line);
+                    }
                 }
-                let trimmed = line.trim();
-                if !trimmed.is_empty() {
-                    self.print_text(trimmed);
+                output.push('\n');
+                output.push_str(&close_indent_str);
+                output.push_str("*/");
+
+                self.print_text(&output);
+            } else {
+                self.print_hard_line_break(indent + 1);
+
+                // Process line by line, preserving original structure
+                for (i, line) in text.lines().enumerate() {
+                    if i > 0 {
+                        self.print_hard_line_break(indent + 1);
+                    }
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() {
+                        self.print_text(trimmed);
+                    }
                 }
+
+                self.print_hard_line_break(indent);
+                self.print_text("*/");
             }
-
-            self.print_hard_line_break(indent);
-            self.print_text("*/");
         } else {
             // Use block comment with word wrapping
             let block_open = if is_doc { "/**" } else { "/*" };

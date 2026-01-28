@@ -143,4 +143,40 @@ contract MockERC7739Signer {
       alice, bob, _amount, _validAfter, _validBefore, _nonce, _signature
     );
   }
+
+  /*
+    @custom:preserve
+
+    This fallback routes unrecognized calls to a query contract specified as
+    the first argument in the calldata. This allows external callers to interact
+    with query contracts as if their view functions lived directly on this
+    contract.
+
+    The query contract address is extracted from the first ABI-encoded argument.
+    Query contract functions should accept the query contract address as their
+    first parameter and ignore it, since it is only used for routing.
+
+    function myQuery (
+      address,
+      address _user
+    ) external view returns (uint256);
+
+    Callers can then invoke their queries like so.
+ 
+    IMyQuery(address(this)).myQuery(queryAddr, user);
+  */
+  fallback () external {
+    address _query = abi.decode(msg.data[4:], (address));
+    (bool _innerSuccess, bytes memory _innerResult) = delegateview(
+      _query, msg.data
+    );
+    assembly ("memory-safe") {
+      let _ptr := add(_innerResult, 0x20)
+      let _len := mload(_innerResult)
+      if iszero(_innerSuccess) {
+        revert(_ptr, _len)
+      }
+      return(_ptr, _len)
+    }
+  }
 }
