@@ -872,21 +872,34 @@ fn format_try_with_renames(
     renames: &mut HashMap<String, String>,
 ) -> Vec<IRElement> {
     let fmt = |e: &Expression| format_expression_with_renames(e, renames);
-    let mut ir = vec![IRElement::text("try"), IRElement::text(" "), fmt(expr)];
+    let mut ir = vec![IRElement::text("try"), IRElement::text(" ")];
 
-    // Returns
+    // Get the expression IR. If it's a Group (as with function calls), unwrap it
+    // so that its contents combine with the returns clause in a single Group.
+    // This ensures the fit check considers the full header length, causing the
+    // expression's internal SoftestLineBreaks to trigger when needed.
+    let expr_ir = fmt(expr);
+    let mut header_elements = match expr_ir {
+        IRElement::Group(elements) => elements.to_vec(),
+        other => vec![other],
+    };
+
+    // Add returns clause to header
     if !returns.is_empty() {
-        ir.push(IRElement::text(" returns ("));
+        header_elements.push(IRElement::text(" returns ("));
         for (i, (_, param)) in returns.iter().enumerate() {
             if i > 0 {
-                ir.push(IRElement::text(", "));
+                header_elements.push(IRElement::text(", "));
             }
             if let Some(p) = param {
-                ir.extend(crate::ir_builder::expressions::format_parameter(p));
+                header_elements.extend(crate::ir_builder::expressions::format_parameter(p));
             }
         }
-        ir.push(IRElement::text(")"));
+        header_elements.push(IRElement::text(")"));
     }
+
+    // Wrap the header in a Group so the fit check considers expr + returns together
+    ir.push(IRElement::group(header_elements));
 
     // Try block body
     if let Some(body_stmt) = body {

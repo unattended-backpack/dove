@@ -144,6 +144,41 @@ contract MockERC7739Signer {
     );
   }
 
+  /**
+    Call `onApprovalReceived` on `_spender` and verify it returns the expected
+    selector.
+
+    @param _spender The address that was approved.
+    @param _value The amount of tokens approved.
+    @param _data Additional data to pass to the spender.
+  */
+  function _checkOnApprovalReceived (
+    address _spender,
+    uint256 _value,
+    bytes memory _data
+  ) private {
+    if (_spender.code.length == 0) {
+      revert ERC1363EOAReceiver();
+    }
+
+    // Revert if the target could not handle the approval and bubble up errors.
+    try IERC1363Spender(_spender).onApprovalReceived(
+      msg.sender, _value, _data
+    ) returns (bytes4 _retval) {
+      if (_retval != IERC1363Spender.onApprovalReceived.selector) {
+        revert ERC1363InvalidSpender();
+      }
+    } catch (bytes memory _reason) {
+      if (_reason.length == 0) {
+        revert ERC1363InvalidSpender();
+      } else {
+        assembly ("memory-safe") {
+          revert(add(_reason, 0x20), mload(_reason))
+        }
+      }
+    }
+  }
+
   /*
     @custom:preserve
 
