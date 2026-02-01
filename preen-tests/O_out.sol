@@ -185,6 +185,40 @@ contract MockERC7739Signer {
     }
   }
 
+  /**
+    @custom:preserve
+
+    convertToShares() returns correct share amount.
+
+    With initial state:
+    - totalAssets = 1 gwei (1e9 wei WETH)
+    - totalSupply = 1 billion SIGIL (1e27 wei)
+    - decimalsOffset = 18
+
+    Formula (Solady ERC4626 with offset):
+    shares = assets * (totalSupply + 10^offset) / (totalAssets + 1)
+
+    For 1 WETH (1e18 wei):
+    shares = 1e18 * (1e27 + 1e18) / (1e9 + 1)
+           ≈ 1e18 * 1e27 / 1e9
+           = 1e45 / 1e9 = 1e36 shares
+
+    This is 1 billion times the total supply because 1 WETH is 1 billion times
+    the initial backing amount (1 gwei).
+  */
+  function test_convertToShares () public view {
+    uint256 _assets = 1 ether;
+    uint256 _shares = token.convertToShares(_assets);
+
+    // 1 WETH should convert to ~1e36 shares (1B times total supply).
+    uint256 _expectedShares =
+      _assets * (TOTAL_SUPPLY + 1e18) / (INIT_WETH_AMOUNT + 1);
+    assertEq(_shares, _expectedShares);
+
+    // Sanity check: 1 WETH = 1e9 gwei, so 1e9 times the total supply.
+    assertApproxEqRel(_shares, TOTAL_SUPPLY * 1e9, 0.001e18);
+  }
+
   /*
     @custom:preserve
 

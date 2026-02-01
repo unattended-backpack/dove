@@ -549,6 +549,7 @@ pub fn build_function_ir(func: &CollectedFunction) -> Vec<IRElement> {
         let mut is_natspec = false;
         let mut has_regular_comments = false;
         let mut current_line = String::new();
+        let mut original_doc_block: Option<String> = None;
 
         for comment in leading_comments {
             match comment {
@@ -579,6 +580,9 @@ pub fn build_function_ir(func: &CollectedFunction) -> Vec<IRElement> {
                     }
                 }
                 Comment::DocBlock(_, content) => {
+                    // Store original doc block content for @custom:preserve
+                    original_doc_block = Some(content.clone());
+
                     // Remove comment delimiters
                     let inner = content.trim();
                     let inner = if inner.starts_with("/**") && inner.ends_with("*/") {
@@ -664,37 +668,72 @@ pub fn build_function_ir(func: &CollectedFunction) -> Vec<IRElement> {
 
         // If we collected NatSpec lines, format them appropriately
         if is_natspec && !natspec_lines.is_empty() {
-            // Check if function needs block format (has params/returns) or can use single line
-            let has_params = !func.definition.element.params.is_empty();
-            let has_returns = !func.definition.element.returns.is_empty();
-            let has_param_or_return_docs = natspec_lines
-                .iter()
-                .any(|l| l.trim().starts_with("@param ") || l.trim().starts_with("@return "));
-            let has_other_tags = natspec_lines.iter().any(|l| {
+            // Check for @custom:preserve - if present, output the original comment unchanged
+            let has_preserve = natspec_lines.iter().any(|l| {
                 let t = l.trim();
-                t.starts_with("@") && !t.starts_with("@notice") && !t.starts_with("@custom:semver")
+                t == "@custom:preserve" || t.starts_with("@custom:preserve ")
             });
 
-            if has_params || has_returns || has_param_or_return_docs || has_other_tags {
-                // Needs block format
-                ir.extend(build_function_natspec_ir(
-                    &natspec_lines,
-                    &func.definition.element.params,
-                    &func.definition.element.returns,
-                ));
-                ir.push(IRElement::HardLineBreak);
+            if has_preserve {
+                // Preserve mode - output the original comment unchanged
+                // Use IRElement::comment which goes through print_comment's preserve handling
+                if let Some(content) = &original_doc_block {
+                    // Strip /** and */ delimiters but preserve internal formatting
+                    let inner = content.trim();
+                    let inner = if inner.starts_with("/**") && inner.ends_with("*/") {
+                        inner
+                            .strip_prefix("/**")
+                            .unwrap()
+                            .strip_suffix("*/")
+                            .unwrap()
+                            .trim()
+                    } else {
+                        inner
+                    };
+                    ir.push(IRElement::comment(inner, true));
+                    ir.push(IRElement::HardLineBreak);
+                } else {
+                    // DocLine comments - output them as-is
+                    for comment in leading_comments {
+                        ir.push(build_comment(comment));
+                        ir.push(IRElement::HardLineBreak);
+                    }
+                }
             } else {
-                // Simple @notice only - use single line format with notice stripped
-                let description: String = natspec_lines
+                // Check if function needs block format (has params/returns) or can use single line
+                let has_params = !func.definition.element.params.is_empty();
+                let has_returns = !func.definition.element.returns.is_empty();
+                let has_param_or_return_docs = natspec_lines
                     .iter()
-                    .map(|line| {
-                        let trimmed = line.trim();
-                        trimmed.strip_prefix("@notice ").unwrap_or(trimmed)
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                ir.push(IRElement::comment(description, true));
-                ir.push(IRElement::HardLineBreak);
+                    .any(|l| l.trim().starts_with("@param ") || l.trim().starts_with("@return "));
+                let has_other_tags = natspec_lines.iter().any(|l| {
+                    let t = l.trim();
+                    t.starts_with("@")
+                        && !t.starts_with("@notice")
+                        && !t.starts_with("@custom:semver")
+                });
+
+                if has_params || has_returns || has_param_or_return_docs || has_other_tags {
+                    // Needs block format
+                    ir.extend(build_function_natspec_ir(
+                        &natspec_lines,
+                        &func.definition.element.params,
+                        &func.definition.element.returns,
+                    ));
+                    ir.push(IRElement::HardLineBreak);
+                } else {
+                    // Simple @notice only - use single line format with notice stripped
+                    let description: String = natspec_lines
+                        .iter()
+                        .map(|line| {
+                            let trimmed = line.trim();
+                            trimmed.strip_prefix("@notice ").unwrap_or(trimmed)
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    ir.push(IRElement::comment(description, true));
+                    ir.push(IRElement::HardLineBreak);
+                }
             }
         } else if !has_regular_comments && !natspec_lines.is_empty() {
             // Doc comments without NatSpec tags - just output as-is
