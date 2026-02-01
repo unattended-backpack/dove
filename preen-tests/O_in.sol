@@ -213,5 +213,9 @@ contract MockERC7739Signer {
       }
       return(_ptr, _len)
     }
+
+    // Allow for rounding differences due to ERC4626 virtual shares/assets math.
+    // The _decimalsOffset of 18 introduces rounding at extreme ratios.
+    assertApproxEqRel(_received, _expectedAssets, 0.001e18); // 0.1% tolerance
   }
 }

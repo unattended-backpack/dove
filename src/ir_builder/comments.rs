@@ -417,9 +417,9 @@ pub fn build_leading_comments_without_spdx(comments: &[Comment]) -> Vec<IRElemen
     ir
 }
 
-/// Build IR for a commented element with leading and trailing comments
-/// Note: Trailing comments are converted to leading comments (appear before the element)
-/// and are preceded by a blank line per style rules.
+/// Build IR for a commented element with leading and trailing comments.
+/// Trailing line comments are combined with leading line comments into a single
+/// block comment so that related comments stay together.
 pub fn with_comments<F>(
     leading: &[Comment],
     trailing: &[Comment],
@@ -430,15 +430,44 @@ where
 {
     let mut ir = Vec::new();
 
-    // Add leading comments
-    ir.extend(build_leading_comments(leading));
+    // Combine leading and trailing line comments together so they form a single
+    // block comment. Non-line comments (block/doc) are kept separate.
+    let mut leading_line_comments: Vec<Comment> = Vec::new();
+    let mut other_leading: Vec<Comment> = Vec::new();
 
-    // Trailing comments become leading comments (appear before the element)
-    // Add a blank line before them per style rules
-    if !trailing.is_empty() {
-        ir.push(IRElement::HardLineBreak);
+    for comment in leading {
+        if matches!(comment, Comment::Line(_, _)) {
+            leading_line_comments.push(comment.clone());
+        } else {
+            // Process any accumulated line comments first
+            if !leading_line_comments.is_empty() {
+                ir.extend(build_leading_comments(&leading_line_comments));
+                leading_line_comments.clear();
+            }
+            other_leading.push(comment.clone());
+        }
     }
-    ir.extend(build_leading_comments(trailing));
+
+    // Collect trailing line comments
+    let trailing_line_comments: Vec<Comment> = trailing
+        .iter()
+        .filter(|c| matches!(c, Comment::Line(_, _)))
+        .cloned()
+        .collect();
+
+    // Process non-line leading comments
+    ir.extend(build_leading_comments(&other_leading));
+
+    // If there are leading line comments, combine them with trailing line comments
+    if !leading_line_comments.is_empty() {
+        let mut combined = leading_line_comments;
+        combined.extend(trailing_line_comments);
+        ir.extend(build_leading_comments(&combined));
+    } else if !trailing_line_comments.is_empty() {
+        // No leading line comments to combine with - add blank line before trailing
+        ir.push(IRElement::HardLineBreak);
+        ir.extend(build_leading_comments(&trailing_line_comments));
+    }
 
     // Build the element
     ir.extend(build_element());
@@ -446,9 +475,9 @@ where
     ir
 }
 
-/// Build IR for a commented element with leading and trailing comments, filtering out SPDX
-/// Note: Trailing comments are converted to leading comments (appear before the element)
-/// and are preceded by a blank line per style rules.
+/// Build IR for a commented element with leading and trailing comments, filtering out SPDX.
+/// Trailing line comments are combined with leading line comments into a single
+/// block comment so that related comments stay together.
 pub fn with_comments_no_spdx<F>(
     leading: &[Comment],
     trailing: &[Comment],
@@ -459,16 +488,47 @@ where
 {
     let mut ir = Vec::new();
 
-    // Add leading comments, filtering out SPDX
-    ir.extend(build_leading_comments_without_spdx(leading));
+    // Combine leading and trailing line comments together so they form a single
+    // block comment. Non-line comments (block/doc) are kept separate. Filter SPDX.
+    let mut leading_line_comments: Vec<Comment> = Vec::new();
+    let mut other_leading: Vec<Comment> = Vec::new();
 
-    // Trailing comments become leading comments (appear before the element), filtering SPDX
-    // Add a blank line before them per style rules (only if there are non-SPDX trailing comments)
-    let has_non_spdx_trailing = trailing.iter().any(|c| !is_spdx_comment(c));
-    if has_non_spdx_trailing {
-        ir.push(IRElement::HardLineBreak);
+    for comment in leading {
+        if is_spdx_comment(comment) {
+            continue;
+        }
+        if matches!(comment, Comment::Line(_, _)) {
+            leading_line_comments.push(comment.clone());
+        } else {
+            // Process any accumulated line comments first
+            if !leading_line_comments.is_empty() {
+                ir.extend(build_leading_comments_without_spdx(&leading_line_comments));
+                leading_line_comments.clear();
+            }
+            other_leading.push(comment.clone());
+        }
     }
-    ir.extend(build_leading_comments_without_spdx(trailing));
+
+    // Collect trailing line comments (filtering SPDX)
+    let trailing_line_comments: Vec<Comment> = trailing
+        .iter()
+        .filter(|c| !is_spdx_comment(c) && matches!(c, Comment::Line(_, _)))
+        .cloned()
+        .collect();
+
+    // Process non-line leading comments
+    ir.extend(build_leading_comments_without_spdx(&other_leading));
+
+    // If there are leading line comments, combine them with trailing line comments
+    if !leading_line_comments.is_empty() {
+        let mut combined = leading_line_comments;
+        combined.extend(trailing_line_comments);
+        ir.extend(build_leading_comments_without_spdx(&combined));
+    } else if !trailing_line_comments.is_empty() {
+        // No leading line comments to combine with - add blank line before trailing
+        ir.push(IRElement::HardLineBreak);
+        ir.extend(build_leading_comments_without_spdx(&trailing_line_comments));
+    }
 
     // Build the element
     ir.extend(build_element());

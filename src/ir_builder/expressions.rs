@@ -476,8 +476,8 @@ pub fn format_expression_with_renames(
             ir.push(IRElement::text("]"));
             IRElement::group(ir)
         }
-        Expression::RationalNumberLiteral(_, mantissa, exponent, exp_str, _) => {
-            format_rational_number_literal(mantissa, exponent, exp_str)
+        Expression::RationalNumberLiteral(loc, mantissa, fraction, exp_str, _) => {
+            format_rational_number_literal(loc, mantissa, fraction, exp_str)
         }
     }
 }
@@ -842,9 +842,25 @@ pub fn format_identifier_path(path: &IdentifierPath) -> IRElement {
     IRElement::text(parts.join("."))
 }
 
-fn format_rational_number_literal(mantissa: &str, exponent: &str, exp_str: &str) -> IRElement {
+fn format_rational_number_literal(
+    loc: &Loc,
+    mantissa: &str,
+    fraction: &str,
+    exp_str: &str,
+) -> IRElement {
+    // Try to extract the original text from source to preserve exact formatting
+    if let Some(original) = extract_source_text(loc) {
+        return IRElement::text(original);
+    }
+
+    // Fallback to reconstructed text
     let mut text = mantissa.to_string();
-    if !exponent.is_empty() || !exp_str.is_empty() {
+    if !fraction.is_empty() {
+        text.push('.');
+        text.push_str(fraction);
+    }
+    if !exp_str.is_empty() {
+        text.push('e');
         text.push_str(exp_str);
     }
     IRElement::text(text)
