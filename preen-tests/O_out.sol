@@ -261,4 +261,25 @@ contract MockERC7739Signer {
     */
     assertApproxEqRel(_received, _expectedAssets, 0.001e18);
   }
+
+  /**
+    Return whether this contract supports a given interface.
+
+    @param _interfaceId The interface identifier to check.
+
+    @return _ Whether the interface is supported.
+  */
+  function supportsInterface (
+    bytes4 _interfaceId
+  ) public view override(
+    ERC1363, ERC2612, BurnableERC3009, ERC5805, BurnOnlyERC4626
+  ) returns (
+    bool
+  ) {
+    return ERC1363.supportsInterface(_interfaceId)
+    || ERC2612.supportsInterface(_interfaceId)
+    || BurnableERC3009.supportsInterface(_interfaceId)
+    || ERC5805.supportsInterface(_interfaceId)
+    || BurnOnlyERC4626.supportsInterface(_interfaceId);
+  }
 }

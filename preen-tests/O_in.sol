@@ -252,4 +252,24 @@ contract MockERC7739Signer {
     // The _decimalsOffset of 18 introduces rounding at extreme ratios.
     assertApproxEqRel(_received, _expectedAssets, 0.001e18); // 0.1% tolerance
   }
+
+  /**
+    Return whether this contract supports a given interface.
+
+    @param _interfaceId The interface identifier to check.
+
+    @return _ Whether the interface is supported.
+  */
+  function supportsInterface (
+    bytes4 _interfaceId
+  ) public view override(ERC1363, ERC2612, BurnableERC3009, ERC5805, BurnOnlyERC4626)
+   returns (
+    bool
+  ) {
+    return ERC1363.supportsInterface(_interfaceId)
+    || ERC2612.supportsInterface(_interfaceId)
+    || BurnableERC3009.supportsInterface(_interfaceId)
+    || ERC5805.supportsInterface(_interfaceId)
+    || BurnOnlyERC4626.supportsInterface(_interfaceId);
+  }
 }

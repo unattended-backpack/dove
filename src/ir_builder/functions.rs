@@ -1142,15 +1142,50 @@ fn format_function_attribute(
             if paths.is_empty() {
                 IRElement::text("override")
             } else {
-                let mut ir = vec![IRElement::text("override(")];
-                for (i, path) in paths.iter().enumerate() {
-                    if i > 0 {
-                        ir.push(IRElement::text(", "));
+                // Calculate the total length of paths when rendered flat
+                let paths_flat_len: usize = paths
+                    .iter()
+                    .map(|p| {
+                        p.identifiers
+                            .iter()
+                            .map(|id| id.name.len())
+                            .sum::<usize>()
+                            + (p.identifiers.len().saturating_sub(1)) // dots between identifiers
+                    })
+                    .sum::<usize>()
+                    + (paths.len().saturating_sub(1)) * 2; // ", " between paths
+
+                // If paths are short, render inline. If long, force break.
+                // "override(" is 9 chars, ")" is 1, so base is 10.
+                // Use 40 as threshold since override appears mid-line.
+                if paths_flat_len <= 40 {
+                    // Short list - render inline
+                    let mut ir = vec![IRElement::text("override(")];
+                    for (i, path) in paths.iter().enumerate() {
+                        if i > 0 {
+                            ir.push(IRElement::text(", "));
+                        }
+                        ir.push(format_identifier_path(path));
                     }
-                    ir.push(format_identifier_path(path));
+                    ir.push(IRElement::text(")"));
+                    IRElement::group(ir)
+                } else {
+                    // Long list - use HardLineBreak to force multi-line format
+                    let mut paths_content = vec![];
+                    for (i, path) in paths.iter().enumerate() {
+                        if i > 0 {
+                            paths_content.push(IRElement::text(", "));
+                        }
+                        paths_content.push(format_identifier_path(path));
+                    }
+
+                    let mut ir = vec![IRElement::text("override(")];
+                    ir.push(IRElement::HardLineBreak);
+                    ir.push(IRElement::indent(paths_content));
+                    ir.push(IRElement::HardLineBreak);
+                    ir.push(IRElement::text(")"));
+                    IRElement::group(ir)
                 }
-                ir.push(IRElement::text(")"));
-                IRElement::group(ir)
             }
         }
         FunctionAttribute::BaseOrModifier(_, base) => format_base_or_modifier(base, renames),
