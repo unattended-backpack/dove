@@ -352,10 +352,11 @@ pub fn build_import_ir(import: &CommentedElement<Box<Import>>) -> Vec<IRElement>
             ir.push(IRElement::text(&symbol));
             ir.push(IRElement::text(" }"));
             ir.push(IRElement::text(" from"));
-            // Wrap the path in indent so it gets proper indentation when breaking
+            // Wrap the path and semicolon in indent so they're measured together
+            // when deciding whether to break after "from"
             ir.push(IRElement::indent(vec![
                 IRElement::SoftLineBreak,
-                format_import_path(path),
+                IRElement::group(vec![format_import_path(path), IRElement::text(";")]),
             ]));
         }
         Import::GlobalSymbol(path, symbol, _) => {
@@ -363,6 +364,7 @@ pub fn build_import_ir(import: &CommentedElement<Box<Import>>) -> Vec<IRElement>
             ir.push(format_import_path(path));
             ir.push(IRElement::text(" as "));
             ir.push(IRElement::text(&symbol.name));
+            ir.push(IRElement::text(";"));
         }
         Import::Rename(path, imports, _) => {
             ir.push(IRElement::text("{ "));
@@ -383,15 +385,15 @@ pub fn build_import_ir(import: &CommentedElement<Box<Import>>) -> Vec<IRElement>
             ir.extend(symbols_group);
             ir.push(IRElement::text(" }"));
             ir.push(IRElement::text(" from"));
-            // Wrap the path in indent so it gets proper indentation when breaking
+            // Wrap the path and semicolon in indent so they're measured together
+            // when deciding whether to break after "from"
             ir.push(IRElement::indent(vec![
                 IRElement::SoftLineBreak,
-                format_import_path(path),
+                IRElement::group(vec![format_import_path(path), IRElement::text(";")]),
             ]));
         }
     }
 
-    ir.push(IRElement::text(";"));
     vec![IRElement::group(ir)]
 }
 

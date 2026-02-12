@@ -2,6 +2,8 @@
 pragma solidity 0.8.26;
 
 import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
+import { PrivateTransferVerifier } from
+  "token/7503/PrivateTransferVerifier.sol";
 
 /**
   @custom:benediction DEVS BENEDICAT ET PROTEGAT CONTRACTVM MEVM
