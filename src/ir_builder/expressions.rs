@@ -683,11 +683,16 @@ fn format_array_subscript(array: &Expression, index: Option<&Expression>, rename
         return IRElement::text(text);
     }
 
-    // Fall back to grouped format for complex expressions
+    // Fall back to grouped format for complex expressions with line breaking support
     let mut ir = vec![format_expression_with_renames(array, renames), IRElement::text("[")];
 
     if let Some(idx) = index {
-        ir.push(format_expression_with_renames(idx, renames));
+        // Add soft breaks so long index expressions can wrap to a new line
+        ir.push(IRElement::indent(vec![
+            IRElement::SoftestLineBreak,
+            format_expression_with_renames(idx, renames),
+        ]));
+        ir.push(IRElement::SoftestLineBreak);
     }
 
     ir.push(IRElement::text("]"));

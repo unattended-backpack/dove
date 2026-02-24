@@ -268,6 +268,23 @@ contract MockERC7739Signer {
    returns (
     bool
   ) {
+      /*
+        Update `lastLeftChild` for this level. If `currentLevelSize` is odd, the
+        last node in the array is an unpaired left child. If even with more than
+        one node, the last node is a right child that is already paired, so we
+        take the second-to-last node. If even with exactly one node, the cached
+        value from before the batch insertion is still correct because we are
+        only inserting a single right child.
+      */
+      if (_currentLevelSize & 1 == 1) {
+        _tree.lastLeftChild[_level] = _currentLevelNewNodes[
+        _currentLevelNewNodes.length - 1];
+      } else if (_currentLevelNewNodes.length > 1) {
+        _tree.lastLeftChild[_level] = _currentLevelNewNodes[
+        _currentLevelNewNodes.length - 2];
+      }
+      _currentLevelStartIndex = _nextLevelStartIndex;
+
     return ERC1363.supportsInterface(_interfaceId)
     || ERC2612.supportsInterface(_interfaceId)
     || BurnableERC3009.supportsInterface(_interfaceId)
