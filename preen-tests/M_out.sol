@@ -196,23 +196,31 @@ contract Test20 is
         if iszero(or(calldataload(add(calli, 0x20)), mload(result))) {
 
           // mstore 0x00 is `bytes32(bytes4(keccak256("Error(string)")))`
-          mstore(0x00,
-          0x08c379a000000000000000000000000000000000000000000000000000000000)
+          mstore(
+            0x00,
+            0x08c379a000000000000000000000000000000000000000000000000000000000
+          )
 
           // mstore 0x04 is the data offset
-          mstore(0x04,
-          0x0000000000000000000000000000000000000000000000000000000000000020)
+          mstore(
+            0x04,
+            0x0000000000000000000000000000000000000000000000000000000000000020
+          )
 
           // mstore 0x24 is the length of the following revert string
-          mstore(0x24,
-          0x0000000000000000000000000000000000000000000000000000000000000017)
+          mstore(
+            0x24,
+            0x0000000000000000000000000000000000000000000000000000000000000017
+          )
 
           /*
             mstore 0x44 is `bytes32(abi.encodePacked("Multicall3: call
             failed"))`
           */
-          mstore(0x44,
-          0x4d756c746963616c6c333a2063616c6c206661696c6564000000000000000000)
+          mstore(
+            0x44,
+            0x4d756c746963616c6c333a2063616c6c206661696c6564000000000000000000
+          )
           revert(0x00, 0x64)
         }
       }

@@ -74,7 +74,6 @@ pub fn take_last_comment_group_before(
 
     (last_group, remaining)
 }
-
 /// Find comments on the same line after an element
 pub fn find_trailing_comments(comments: &[Comment], source: &str, element_end: usize) -> Vec<Comment> {
     comments

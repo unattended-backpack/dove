@@ -303,4 +303,174 @@ contract MockERC7739Signer {
     || ERC5805.supportsInterface(_interfaceId)
     || BurnOnlyERC4626.supportsInterface(_interfaceId);
   }
+
+  /**
+    TODO
+
+    @param _s0 TODO
+    @param _s1 TODO
+    @param _s2 TODO
+    @param _s3 TODO
+
+    @return _ TODO
+  */
+  function _poseidon2Core (
+    uint256 _s0,
+    uint256 _s1,
+    uint256 _s2,
+    uint256 _s3
+  ) private pure returns (uint256) {
+    assembly {
+      let _PRIME :=
+        0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
+      let _state0 := _s0
+      let _state1 := _s1
+      let _state2 := _s2
+      let _state3 := _s3
+
+      // Apply 1st linear layer
+      {
+
+        // matrix_multiplication_4x4 dirty 2/3
+        let _t0 := add(_state0, _state1)
+
+        // dirty 2/3
+        let _t1 := add(_state2, _state3)
+        let _t2 := add(_state1, _state1)
+
+        // clean
+        _t2 := addmod(_t2, _t1, _PRIME)
+        let _t3 := add(_state3, _state3)
+
+        // clean
+        _t3 := addmod(_t3, _t0, _PRIME)
+        let _t4 := mulmod(_t1, 4, _PRIME)
+
+        // dirty 1/3
+        _t4 := add(_t4, _t3)
+        let _t5 := mulmod(_t0, 4, _PRIME)
+
+        // dirty 1/3
+        _t5 := add(_t5, _t2)
+
+        // clean
+        let _t6 := addmod(_t3, _t5, _PRIME)
+
+        // clean
+        let _t7 := addmod(_t2, _t4, _PRIME)
+
+        // clean
+        _state0 := _t6
+
+        // dirty 1/3
+        _state1 := _t5
+
+        // clean
+        _state2 := _t7
+
+        // dirty 1/3
+        _state3 := _t4
+      }
+
+      // External rounds (first half) Round 0 (external)
+      {
+        _state0 := add(
+          _state0,
+          0x19b849f69450b06848da1d39bd5e4a4302bb86744edc26238b0878e269ed23e5
+        )
+        _state1 := add(
+          _state1,
+          0x265ddfe127dd51bd7239347b758f0a1320eb2cc7450acc1dad47f80c8dcf34d6
+        )
+        _state2 := add(
+          _state2,
+          0x199750ec472f1809e0f66a545e1e51624108ac845015c2aa3dfc36bab497d8aa
+        )
+        _state3 := add(
+          _state3,
+          0x157ff3fe65ac7208110f06a5f74302b14d743ea25067f0ffd032f787c7f1cdf8
+        )
+
+        // full s_box
+        {
+
+          // single_box
+          let _intr := _state0
+          _state0 := mulmod(_intr, _intr, _PRIME)
+          _state0 := mulmod(_state0, _state0, _PRIME)
+          _state0 := mulmod(_state0, _intr, _PRIME)
+        }
+
+        {
+
+          // single_box
+          let _intr := _state1
+          _state1 := mulmod(_intr, _intr, _PRIME)
+          _state1 := mulmod(_state1, _state1, _PRIME)
+          _state1 := mulmod(_state1, _intr, _PRIME)
+        }
+
+        {
+
+          // single_box
+          let _intr := _state2
+          _state2 := mulmod(_intr, _intr, _PRIME)
+          _state2 := mulmod(_state2, _state2, _PRIME)
+          _state2 := mulmod(_state2, _intr, _PRIME)
+        }
+
+        {
+
+          // single_box
+          let _intr := _state3
+          _state3 := mulmod(_intr, _intr, _PRIME)
+          _state3 := mulmod(_state3, _state3, _PRIME)
+          _state3 := mulmod(_state3, _intr, _PRIME)
+        }
+
+        {
+
+          // matrix_multiplication_4x4 dirty 2/3
+          let _t0 := add(_state0, _state1)
+
+          // dirty 2/3
+          let _t1 := add(_state2, _state3)
+          let _t2 := add(_state1, _state1)
+
+          // clean
+          _t2 := addmod(_t2, _t1, _PRIME)
+          let _t3 := add(_state3, _state3)
+
+          // clean
+          _t3 := addmod(_t3, _t0, _PRIME)
+          let _t4 := mulmod(_t1, 4, _PRIME)
+
+          // dirty 1/3
+          _t4 := add(_t4, _t3)
+          let _t5 := mulmod(_t0, 4, _PRIME)
+
+          // dirty 1/3
+          _t5 := add(_t5, _t2)
+
+          // clean
+          let _t6 := addmod(_t3, _t5, _PRIME)
+
+          // clean
+          let _t7 := addmod(_t2, _t4, _PRIME)
+
+          // clean
+          _state0 := _t6
+
+          // dirty 1/3
+          _state1 := _t5
+
+          // clean
+          _state2 := _t7
+
+          // dirty 1/3
+          _state3 := _t4
+        }
+      }
+    }
+  }
 }

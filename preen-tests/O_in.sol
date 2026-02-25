@@ -291,4 +291,101 @@ contract MockERC7739Signer {
     || ERC5805.supportsInterface(_interfaceId)
     || BurnOnlyERC4626.supportsInterface(_interfaceId);
   }
+
+    function _poseidon2Core(uint256 s0, uint256 s1, uint256 s2, uint256 s3) private pure returns (uint256 result) {
+        assembly {
+            let PRIME := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
+
+            let state0 := s0
+            let state1 := s1
+            let state2 := s2
+            let state3 := s3
+
+            // Apply 1st linear layer
+
+            {
+                // matrix_multiplication_4x4
+                let t0 := add(state0, state1) // dirty 2/3
+                let t1 := add(state2, state3) // dirty 2/3
+                let t2 := add(state1, state1)
+                t2 := addmod(t2, t1, PRIME) // clean
+                let t3 := add(state3, state3)
+                t3 := addmod(t3, t0, PRIME) // clean
+                let t4 := mulmod(t1, 4, PRIME)
+                t4 := add(t4, t3) // dirty 1/3
+                let t5 := mulmod(t0, 4, PRIME)
+                t5 := add(t5, t2) // dirty 1/3
+                let t6 := addmod(t3, t5, PRIME) // clean
+                let t7 := addmod(t2, t4, PRIME) // clean
+                state0 := t6 // clean
+                state1 := t5 // dirty 1/3
+                state2 := t7 // clean
+                state3 := t4 // dirty 1/3
+            }
+
+            // External rounds (first half)
+
+            // Round 0 (external)
+            {
+                state0 := add(state0, 0x19b849f69450b06848da1d39bd5e4a4302bb86744edc26238b0878e269ed23e5)
+                state1 := add(state1, 0x265ddfe127dd51bd7239347b758f0a1320eb2cc7450acc1dad47f80c8dcf34d6)
+                state2 := add(state2, 0x199750ec472f1809e0f66a545e1e51624108ac845015c2aa3dfc36bab497d8aa)
+                state3 := add(state3, 0x157ff3fe65ac7208110f06a5f74302b14d743ea25067f0ffd032f787c7f1cdf8)
+
+                // full s_box
+
+                {
+                    // single_box
+                    let intr := state0
+                    state0 := mulmod(intr, intr, PRIME)
+                    state0 := mulmod(state0, state0, PRIME)
+                    state0 := mulmod(state0, intr, PRIME)
+                }
+
+                {
+                    // single_box
+                    let intr := state1
+                    state1 := mulmod(intr, intr, PRIME)
+                    state1 := mulmod(state1, state1, PRIME)
+                    state1 := mulmod(state1, intr, PRIME)
+                }
+
+                {
+                    // single_box
+                    let intr := state2
+                    state2 := mulmod(intr, intr, PRIME)
+                    state2 := mulmod(state2, state2, PRIME)
+                    state2 := mulmod(state2, intr, PRIME)
+                }
+
+                {
+                    // single_box
+                    let intr := state3
+                    state3 := mulmod(intr, intr, PRIME)
+                    state3 := mulmod(state3, state3, PRIME)
+                    state3 := mulmod(state3, intr, PRIME)
+                }
+
+                {
+                    // matrix_multiplication_4x4
+                    let t0 := add(state0, state1) // dirty 2/3
+                    let t1 := add(state2, state3) // dirty 2/3
+                    let t2 := add(state1, state1)
+                    t2 := addmod(t2, t1, PRIME) // clean
+                    let t3 := add(state3, state3)
+                    t3 := addmod(t3, t0, PRIME) // clean
+                    let t4 := mulmod(t1, 4, PRIME)
+                    t4 := add(t4, t3) // dirty 1/3
+                    let t5 := mulmod(t0, 4, PRIME)
+                    t5 := add(t5, t2) // dirty 1/3
+                    let t6 := addmod(t3, t5, PRIME) // clean
+                    let t7 := addmod(t2, t4, PRIME) // clean
+                    state0 := t6 // clean
+                    state1 := t5 // dirty 1/3
+                    state2 := t7 // clean
+                    state3 := t4 // dirty 1/3
+                }
+            }
+        }
+    }
 }

@@ -54,7 +54,7 @@ fn collect_yul_statements(
     for stmt in statements {
         let (start, end) = get_yul_statement_location(stmt);
 
-        // Take the last comment group before this statement
+        // Take all comments before this statement (YUL blocks often have section headers)
         let (leading_comments, rest) =
             take_last_comment_group_before(&remaining_comments, source, start);
         remaining_comments = rest;

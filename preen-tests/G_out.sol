@@ -55,9 +55,10 @@ contract EventLogger {
           let _t2 := calldataload(add(_topics.offset, mul(32, 2)))
           let _t3 := calldataload(add(_topics.offset, mul(32, 3)))
 
-          // this is a short standalone comment.
-
-          // Each topic-count has its own opcode for emitting an event
+          /*
+            this is a short standalone comment. Each topic-count has its own
+            opcode for emitting an event
+          */
           switch _topicsCount
           case 0 {
             log0(_memDataOffset, _dataSize)
