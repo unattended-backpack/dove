@@ -26,7 +26,9 @@ mod types;
 pub mod tests;
 
 use crate::collector::model::CollectedElements;
-use solang_parser::pt::Import;
+use solang_parser::pt::{Import, VariableAttribute, VariableDefinition};
+use crate::collector::model::CommentedElement;
+use std::collections::{HashMap, HashSet};
 
 use comments::*;
 use contracts::*;
@@ -47,6 +49,134 @@ pub fn text_with_word_breaks(s: &str) -> Vec<IRElement> {
             result.push(IRElement::SoftLineBreak);
         }
         result.push(IRElement::text(*word));
+    }
+
+    result
+}
+
+// Helper functions for struct-constant dependency resolution at top level
+
+use solang_parser::pt::Expression;
+use crate::collector::model::CollectedStruct;
+
+/// Extract variable names referenced in an expression
+fn extract_referenced_vars(expr: &Expression) -> HashSet<String> {
+    let mut vars = HashSet::new();
+    collect_vars_from_expr(expr, &mut vars);
+    vars
+}
+
+fn collect_vars_from_expr(expr: &Expression, vars: &mut HashSet<String>) {
+    match expr {
+        Expression::Variable(ident) => {
+            vars.insert(ident.name.clone());
+        }
+        Expression::ArraySubscript(_, base, size) => {
+            collect_vars_from_expr(base, vars);
+            if let Some(s) = size {
+                collect_vars_from_expr(s, vars);
+            }
+        }
+        Expression::MemberAccess(_, base, _) => {
+            collect_vars_from_expr(base, vars);
+        }
+        Expression::Add(_, a, b)
+        | Expression::Subtract(_, a, b)
+        | Expression::Multiply(_, a, b)
+        | Expression::Divide(_, a, b)
+        | Expression::Modulo(_, a, b) => {
+            collect_vars_from_expr(a, vars);
+            collect_vars_from_expr(b, vars);
+        }
+        Expression::Parenthesis(_, inner) => {
+            collect_vars_from_expr(inner, vars);
+        }
+        _ => {}
+    }
+}
+
+/// Find all constants that a struct depends on (in field order)
+fn find_struct_constant_deps_ordered(struct_def: &CollectedStruct) -> Vec<String> {
+    let mut deps = Vec::new();
+    let mut seen = HashSet::new();
+    for field in &struct_def.fields {
+        let mut field_deps = HashSet::new();
+        collect_type_constant_deps(&field.element.ty, &mut field_deps);
+        for dep in field_deps {
+            if !seen.contains(&dep) {
+                seen.insert(dep.clone());
+                deps.push(dep);
+            }
+        }
+    }
+    deps
+}
+
+/// Collect constant references from a type expression
+fn collect_type_constant_deps(ty: &Expression, deps: &mut HashSet<String>) {
+    match ty {
+        Expression::ArraySubscript(_, base, size) => {
+            collect_type_constant_deps(base, deps);
+            if let Some(size_expr) = size {
+                deps.extend(extract_referenced_vars(size_expr));
+            }
+        }
+        Expression::MemberAccess(_, base, _) => {
+            collect_type_constant_deps(base, deps);
+        }
+        _ => {}
+    }
+}
+
+/// Find dependencies of a constant (other constants it references in its initializer)
+fn find_constant_deps(var: &CommentedElement<Box<VariableDefinition>>) -> HashSet<String> {
+    let mut deps = HashSet::new();
+    if let Some(init) = &var.element.initializer {
+        collect_vars_from_expr(init, &mut deps);
+    }
+    deps
+}
+
+/// Resolve transitive dependencies: given an ordered list of required constants,
+/// return them in dependency order (dependencies before dependents)
+fn resolve_constant_deps_order(
+    required: &[String],
+    constants: &HashMap<String, &CommentedElement<Box<VariableDefinition>>>,
+) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut visited = HashSet::new();
+    let mut in_progress = HashSet::new();
+
+    fn visit(
+        name: &str,
+        constants: &HashMap<String, &CommentedElement<Box<VariableDefinition>>>,
+        result: &mut Vec<String>,
+        visited: &mut HashSet<String>,
+        in_progress: &mut HashSet<String>,
+    ) {
+        if visited.contains(name) || in_progress.contains(name) {
+            return;
+        }
+        in_progress.insert(name.to_string());
+
+        if let Some(var) = constants.get(name) {
+            let deps = find_constant_deps(var);
+            let mut sorted_deps: Vec<_> = deps.into_iter().collect();
+            sorted_deps.sort();
+            for dep in sorted_deps {
+                if constants.contains_key(&dep) {
+                    visit(&dep, constants, result, visited, in_progress);
+                }
+            }
+        }
+
+        in_progress.remove(name);
+        visited.insert(name.to_string());
+        result.push(name.to_string());
+    }
+
+    for name in required {
+        visit(name, constants, &mut result, &mut visited, &mut in_progress);
     }
 
     result
@@ -200,34 +330,103 @@ pub fn build_ir(collected: &CollectedElements) -> Vec<IRElement> {
         ir.extend(build_enum_ir(enum_def));
     }
 
-    // Process structs
+    // Build a map of top-level constant names to their definitions
+    let constants_map: HashMap<String, &CommentedElement<Box<VariableDefinition>>> = ordered
+        .variables
+        .iter()
+        .filter(|v| {
+            v.element.attrs.iter().any(|attr| {
+                matches!(attr, VariableAttribute::Constant(_))
+            })
+        })
+        .filter_map(|v| {
+            v.element.name.as_ref().map(|n| (n.name.clone(), v))
+        })
+        .collect();
+
+    // Track which constants have been emitted (to avoid duplicates)
+    let mut emitted_constants: HashSet<String> = HashSet::new();
+
+    // Track if we've emitted anything in the struct section (for spacing)
+    let mut emitted_struct_section = false;
+
+    // Process structs - emit dependent constants before each struct
     for (i, struct_def) in ordered.structs.iter().enumerate() {
-        if needs_preceding_blank_line(&ordered, ElementType::Struct, i) {
+        // Find constants this struct depends on (in field order)
+        let struct_deps = find_struct_constant_deps_ordered(struct_def);
+
+        // Resolve transitive dependencies and get them in order
+        let deps_in_order = resolve_constant_deps_order(&struct_deps, &constants_map);
+
+        // Emit each dependency constant (if not already emitted)
+        for dep_name in deps_in_order {
+            if !emitted_constants.contains(&dep_name) {
+                if let Some(var_def) = constants_map.get(&dep_name) {
+                    // Add appropriate spacing
+                    if emitted_struct_section {
+                        ir.push(IRElement::HardLineBreak);
+                        ir.push(IRElement::HardLineBreak);
+                    } else if needs_preceding_blank_line(&ordered, ElementType::Struct, i) {
+                        ir.push(IRElement::HardLineBreak);
+                        ir.push(IRElement::HardLineBreak);
+                    } else if needs_preceding_newline(&ordered, ElementType::Struct, i) {
+                        ir.push(IRElement::HardLineBreak);
+                    }
+                    ir.extend(build_variable_definition_ir(var_def));
+                    emitted_constants.insert(dep_name);
+                    emitted_struct_section = true;
+                }
+            }
+        }
+
+        // Emit the struct
+        if emitted_struct_section {
+            ir.push(IRElement::HardLineBreak);
+            ir.push(IRElement::HardLineBreak);
+        } else if needs_preceding_blank_line(&ordered, ElementType::Struct, i) {
             ir.push(IRElement::HardLineBreak);
             ir.push(IRElement::HardLineBreak);
         } else if needs_preceding_newline(&ordered, ElementType::Struct, i) {
             ir.push(IRElement::HardLineBreak);
         }
         ir.extend(build_struct_ir(struct_def));
+        emitted_struct_section = true;
     }
 
     // Process errors
     for (i, error_def) in ordered.errors.iter().enumerate() {
-        if needs_preceding_blank_line(&ordered, ElementType::Error, i) {
+        if needs_preceding_blank_line(&ordered, ElementType::Error, i) || emitted_struct_section {
             ir.push(IRElement::HardLineBreak);
             ir.push(IRElement::HardLineBreak);
+            emitted_struct_section = false; // Reset after first error
         } else if needs_preceding_newline(&ordered, ElementType::Error, i) {
             ir.push(IRElement::HardLineBreak);
         }
         ir.extend(build_error_ir(error_def));
     }
 
-    // Process variables
+    // Process variables - skip constants that were already emitted with structs
+    let mut first_var = true;
     for (i, var_def) in ordered.variables.iter().enumerate() {
-        if needs_preceding_blank_line(&ordered, ElementType::Variable, i) {
+        // Check if this is a constant that was already emitted
+        let var_name = var_def.element.name.as_ref().map(|n| n.name.clone());
+        if let Some(name) = &var_name {
+            if emitted_constants.contains(name) {
+                continue; // Skip - already emitted before struct
+            }
+        }
+
+        if first_var {
+            if needs_preceding_blank_line(&ordered, ElementType::Variable, i) || emitted_struct_section {
+                ir.push(IRElement::HardLineBreak);
+                ir.push(IRElement::HardLineBreak);
+            } else if needs_preceding_newline(&ordered, ElementType::Variable, i) {
+                ir.push(IRElement::HardLineBreak);
+            }
+            first_var = false;
+        } else {
+            // Between variables, always add blank line
             ir.push(IRElement::HardLineBreak);
-            ir.push(IRElement::HardLineBreak);
-        } else if needs_preceding_newline(&ordered, ElementType::Variable, i) {
             ir.push(IRElement::HardLineBreak);
         }
         ir.extend(build_variable_definition_ir(var_def));

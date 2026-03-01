@@ -294,6 +294,12 @@ fn format_block_full_with_unchecked(
     if !statements.is_empty() {
         for stmt in statements {
             ir.push(IRElement::HardLineBreak);
+            // Add blank line before statements with leading comments
+            // For first statement: adds blank after opening brace
+            // For subsequent: adds blank line separator
+            if !stmt.leading_comments.is_empty() {
+                ir.push(IRElement::HardLineBreak);
+            }
             let stmt_ir = build_statement_ir_full(stmt, renames, return_ctx);
             ir.push(IRElement::indent(stmt_ir));
         }

@@ -152,3 +152,27 @@ fn test_l() {
     let actual = reformat(&input);
     assert_print_match(expected, actual);
 }
+
+#[test]
+fn test_m() {
+    let input = read_preen_test("M_in.sol");
+    let expected = read_preen_test("M_out.sol");
+    let actual = reformat(&input);
+    assert_print_match(expected, actual);
+}
+
+#[test]
+fn test_n() {
+    let input = read_preen_test("N_in.sol");
+    let expected = read_preen_test("N_out.sol");
+    let actual = reformat(&input);
+    assert_print_match(expected, actual);
+}
+
+#[test]
+fn test_o() {
+    let input = read_preen_test("O_in.sol");
+    let expected = read_preen_test("O_out.sol");
+    let actual = reformat(&input);
+    assert_print_match(expected, actual);
+}

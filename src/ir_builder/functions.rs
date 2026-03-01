@@ -214,6 +214,462 @@ fn count_usages_in_expression(expr: &Expression, counts: &mut HashMap<String, us
     }
 }
 
+/// Find return variables that need explicit declarations at the top of the function.
+/// This includes:
+/// - Variables used via member access (e.g., `lhs.x = value`)
+/// - Variables assigned in tuple context (e.g., `(a, x) = ...`)
+/// - Variables whose FIRST assignment is in a nested scope (loops, conditionals)
+/// - Variables used in assembly blocks (e.g., `mstore(result, value)`)
+/// A variable can avoid pre-declaration ONLY if its first assignment is a
+/// standalone top-level assignment (which can become its declaration).
+fn find_return_vars_needing_declaration(
+    statements: &[CommentedStatement],
+    return_vars: &HashSet<String>,
+) -> HashSet<String> {
+    let mut member_access_vars: HashSet<String> = HashSet::new();
+    let mut tuple_assigned_vars: HashSet<String> = HashSet::new();
+    let mut standalone_first_vars: HashSet<String> = HashSet::new();
+
+    check_statements_for_assignment_context(
+        statements,
+        return_vars,
+        &mut member_access_vars,
+        &mut tuple_assigned_vars,
+        &mut standalone_first_vars,
+    );
+
+    // Check for return vars that are USED (not just assigned) in assembly
+    // These need pre-declaration because the assembly reads their value/address
+    let assembly_used_vars = find_return_vars_used_in_assembly_expressions(statements, return_vars);
+
+    // Vars needing declaration: member access OR tuple/nested assigned OR used in assembly expressions
+    let mut needs_declaration: HashSet<String> = member_access_vars;
+    needs_declaration.extend(tuple_assigned_vars);
+    needs_declaration.extend(assembly_used_vars.iter().cloned());
+    // Remove vars whose FIRST assignment is standalone (those can become declarations)
+    // But keep assembly-used vars (they always need pre-declaration)
+    for var in &standalone_first_vars {
+        if !assembly_used_vars.contains(var) {
+            needs_declaration.remove(var);
+        }
+    }
+    needs_declaration
+}
+
+/// Find return variables that are USED (not just assigned) in assembly blocks.
+/// These vars need pre-declaration because the assembly reads their value/address.
+/// Excludes vars that only appear on LHS of assignments (those can be declared inline).
+fn find_return_vars_used_in_assembly_expressions(
+    statements: &[CommentedStatement],
+    return_vars: &HashSet<String>,
+) -> HashSet<String> {
+    let mut used_vars = HashSet::new();
+    for stmt in statements {
+        // Check collected YUL blocks
+        if let Some(yul) = &stmt.yul_block {
+            for s in &yul.statements {
+                collect_return_vars_used_in_yul_stmt(&s.statement, return_vars, &mut used_vars);
+            }
+        }
+        // Recurse into nested statements
+        if let Some(nested) = &stmt.nested_statements {
+            used_vars.extend(find_return_vars_used_in_assembly_expressions(nested, return_vars));
+        }
+    }
+    used_vars
+}
+
+/// Check a YUL statement and collect return vars that are USED (not just assigned)
+fn collect_return_vars_used_in_yul_stmt(
+    stmt: &YulStatement,
+    return_vars: &HashSet<String>,
+    used: &mut HashSet<String>,
+) {
+    match stmt {
+        YulStatement::Assign(_, _vars, expr) => {
+            // Only check RHS - LHS is an assignment target, not a use
+            collect_return_vars_used_in_yul_expr(expr, return_vars, used);
+        }
+        YulStatement::Block(block) => {
+            for s in &block.statements {
+                collect_return_vars_used_in_yul_stmt(s, return_vars, used);
+            }
+        }
+        YulStatement::FunctionCall(call) => {
+            // Function call arguments ARE uses (e.g., mstore(result, value))
+            for arg in &call.arguments {
+                collect_return_vars_used_in_yul_expr(arg, return_vars, used);
+            }
+        }
+        YulStatement::For(for_stmt) => {
+            for s in &for_stmt.init_block.statements {
+                collect_return_vars_used_in_yul_stmt(s, return_vars, used);
+            }
+            collect_return_vars_used_in_yul_expr(&for_stmt.condition, return_vars, used);
+            for s in &for_stmt.post_block.statements {
+                collect_return_vars_used_in_yul_stmt(s, return_vars, used);
+            }
+            for s in &for_stmt.execution_block.statements {
+                collect_return_vars_used_in_yul_stmt(s, return_vars, used);
+            }
+        }
+        YulStatement::If(_, cond, block) => {
+            collect_return_vars_used_in_yul_expr(cond, return_vars, used);
+            for s in &block.statements {
+                collect_return_vars_used_in_yul_stmt(s, return_vars, used);
+            }
+        }
+        YulStatement::Switch(switch) => {
+            collect_return_vars_used_in_yul_expr(&switch.condition, return_vars, used);
+            for case in &switch.cases {
+                if let YulSwitchOptions::Case(_, _, block) = case {
+                    for s in &block.statements {
+                        collect_return_vars_used_in_yul_stmt(s, return_vars, used);
+                    }
+                }
+            }
+            if let Some(default) = &switch.default {
+                if let YulSwitchOptions::Default(_, block) = default {
+                    for s in &block.statements {
+                        collect_return_vars_used_in_yul_stmt(s, return_vars, used);
+                    }
+                }
+            }
+        }
+        YulStatement::VariableDeclaration(_, _vars, init) => {
+            if let Some(expr) = init {
+                collect_return_vars_used_in_yul_expr(expr, return_vars, used);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Collect return vars that appear in a YUL expression (these are uses, not assignments)
+fn collect_return_vars_used_in_yul_expr(
+    expr: &YulExpression,
+    return_vars: &HashSet<String>,
+    used: &mut HashSet<String>,
+) {
+    match expr {
+        YulExpression::Variable(id) => {
+            if return_vars.contains(&id.name) {
+                used.insert(id.name.clone());
+            }
+        }
+        YulExpression::FunctionCall(call) => {
+            for arg in &call.arguments {
+                collect_return_vars_used_in_yul_expr(arg, return_vars, used);
+            }
+        }
+        YulExpression::SuffixAccess(_, base, _) => {
+            collect_return_vars_used_in_yul_expr(base, return_vars, used);
+        }
+        _ => {}
+    }
+}
+
+fn check_statements_for_assignment_context(
+    statements: &[CommentedStatement],
+    return_vars: &HashSet<String>,
+    member_access_vars: &mut HashSet<String>,
+    tuple_assigned_vars: &mut HashSet<String>,
+    standalone_first_vars: &mut HashSet<String>,
+) {
+    // Track which vars have been seen (to identify first assignments)
+    let mut seen_vars: HashSet<String> = HashSet::new();
+    // Top-level statements can have standalone assignments converted to declarations
+    check_statements_for_assignment_context_inner(
+        statements,
+        return_vars,
+        member_access_vars,
+        tuple_assigned_vars,
+        standalone_first_vars,
+        &mut seen_vars,
+        false, // not in nested scope
+    );
+}
+
+fn check_statements_for_assignment_context_inner(
+    statements: &[CommentedStatement],
+    return_vars: &HashSet<String>,
+    member_access_vars: &mut HashSet<String>,
+    tuple_assigned_vars: &mut HashSet<String>,
+    standalone_first_vars: &mut HashSet<String>,
+    seen_vars: &mut HashSet<String>,
+    in_nested_scope: bool,
+) {
+    for stmt in statements {
+        check_statement_for_assignment_context(
+            &stmt.statement,
+            return_vars,
+            member_access_vars,
+            tuple_assigned_vars,
+            standalone_first_vars,
+            seen_vars,
+            in_nested_scope,
+        );
+        if let Some(nested) = &stmt.nested_statements {
+            // Nested statements are inside loops/conditionals - can't convert to declarations
+            check_statements_for_assignment_context_inner(
+                nested,
+                return_vars,
+                member_access_vars,
+                tuple_assigned_vars,
+                standalone_first_vars,
+                seen_vars,
+                true, // in nested scope
+            );
+        }
+    }
+}
+
+fn check_statement_for_assignment_context(
+    stmt: &Statement,
+    return_vars: &HashSet<String>,
+    member_access_vars: &mut HashSet<String>,
+    tuple_assigned_vars: &mut HashSet<String>,
+    standalone_first_vars: &mut HashSet<String>,
+    seen_vars: &mut HashSet<String>,
+    in_nested_scope: bool,
+) {
+    match stmt {
+        Statement::Expression(_, expr) => {
+            check_expression_for_assignment_context(
+                expr,
+                return_vars,
+                member_access_vars,
+                tuple_assigned_vars,
+                standalone_first_vars,
+                seen_vars,
+                in_nested_scope,
+            );
+        }
+        Statement::Block { statements, .. } => {
+            for s in statements {
+                check_statement_for_assignment_context(
+                    s,
+                    return_vars,
+                    member_access_vars,
+                    tuple_assigned_vars,
+                    standalone_first_vars,
+                    seen_vars,
+                    in_nested_scope,
+                );
+            }
+        }
+        Statement::If(_, _, then_stmt, else_stmt) => {
+            // Assignments inside if/else are in nested scope
+            check_statement_for_assignment_context(
+                then_stmt,
+                return_vars,
+                member_access_vars,
+                tuple_assigned_vars,
+                standalone_first_vars,
+                seen_vars,
+                true,
+            );
+            if let Some(e) = else_stmt {
+                check_statement_for_assignment_context(
+                    e,
+                    return_vars,
+                    member_access_vars,
+                    tuple_assigned_vars,
+                    standalone_first_vars,
+                    seen_vars,
+                    true,
+                );
+            }
+        }
+        Statement::For(_, _, _, _, body) => {
+            // Assignments inside for loop body are in nested scope
+            if let Some(b) = body {
+                check_statement_for_assignment_context(
+                    b,
+                    return_vars,
+                    member_access_vars,
+                    tuple_assigned_vars,
+                    standalone_first_vars,
+                    seen_vars,
+                    true,
+                );
+            }
+        }
+        Statement::While(_, _, body) => {
+            // Assignments inside while loop body are in nested scope
+            check_statement_for_assignment_context(
+                body,
+                return_vars,
+                member_access_vars,
+                tuple_assigned_vars,
+                standalone_first_vars,
+                seen_vars,
+                true,
+            );
+        }
+        _ => {}
+    }
+}
+
+/// Check the left-hand side of an assignment for assignment context
+/// `in_tuple` indicates whether we're inside a tuple destructuring
+/// `in_nested_scope` indicates whether we're inside a loop/conditional
+/// `seen_vars` tracks which variables have already been seen (first assignment wins)
+fn check_lhs_for_assignment_context(
+    lhs: &Expression,
+    return_vars: &HashSet<String>,
+    member_access_vars: &mut HashSet<String>,
+    tuple_assigned_vars: &mut HashSet<String>,
+    standalone_assigned_vars: &mut HashSet<String>,
+    seen_vars: &mut HashSet<String>,
+    in_tuple: bool,
+    in_nested_scope: bool,
+) {
+    match lhs {
+        Expression::Variable(var) => {
+            if return_vars.contains(&var.name) {
+                // Only the FIRST assignment determines the var's status
+                if !seen_vars.contains(&var.name) {
+                    seen_vars.insert(var.name.clone());
+                    // Can only use standalone assignment if not in tuple AND not in nested scope
+                    if in_tuple || in_nested_scope {
+                        tuple_assigned_vars.insert(var.name.clone());
+                    } else {
+                        standalone_assigned_vars.insert(var.name.clone());
+                    }
+                }
+                // Subsequent assignments don't change the first status
+            }
+        }
+        Expression::MemberAccess(_, base, _) => {
+            if let Expression::Variable(var) = base.as_ref() {
+                if return_vars.contains(&var.name) {
+                    member_access_vars.insert(var.name.clone());
+                }
+            }
+        }
+        Expression::ArraySubscript(_, array, _) => {
+            // Index access like alphas[0] = ... needs pre-declaration
+            if let Expression::Variable(var) = array.as_ref() {
+                if return_vars.contains(&var.name) {
+                    member_access_vars.insert(var.name.clone());
+                }
+            }
+        }
+        Expression::List(_, items) => {
+            // Tuple assignment like (t.field, x) = ...
+            // All variables inside are in tuple context
+            for (_, item) in items {
+                if let Some(param) = item {
+                    check_lhs_for_assignment_context(
+                        &param.ty,
+                        return_vars,
+                        member_access_vars,
+                        tuple_assigned_vars,
+                        standalone_assigned_vars,
+                        seen_vars,
+                        true, // in_tuple = true
+                        in_nested_scope,
+                    );
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn check_expression_for_assignment_context(
+    expr: &Expression,
+    return_vars: &HashSet<String>,
+    member_access_vars: &mut HashSet<String>,
+    tuple_assigned_vars: &mut HashSet<String>,
+    standalone_assigned_vars: &mut HashSet<String>,
+    seen_vars: &mut HashSet<String>,
+    in_nested_scope: bool,
+) {
+    match expr {
+        Expression::Assign(_, left, right) => {
+            // Check the left side - determine if it's a tuple or standalone
+            let in_tuple = matches!(left.as_ref(), Expression::List(..));
+            check_lhs_for_assignment_context(
+                left,
+                return_vars,
+                member_access_vars,
+                tuple_assigned_vars,
+                standalone_assigned_vars,
+                seen_vars,
+                in_tuple,
+                in_nested_scope,
+            );
+            // Also check right side recursively
+            check_expression_for_assignment_context(
+                right,
+                return_vars,
+                member_access_vars,
+                tuple_assigned_vars,
+                standalone_assigned_vars,
+                seen_vars,
+                in_nested_scope,
+            );
+        }
+        Expression::AssignOr(_, left, right)
+        | Expression::AssignAnd(_, left, right)
+        | Expression::AssignXor(_, left, right)
+        | Expression::AssignShiftLeft(_, left, right)
+        | Expression::AssignShiftRight(_, left, right)
+        | Expression::AssignAdd(_, left, right)
+        | Expression::AssignSubtract(_, left, right)
+        | Expression::AssignMultiply(_, left, right)
+        | Expression::AssignDivide(_, left, right)
+        | Expression::AssignModulo(_, left, right) => {
+            // Check if left side is a member access or index access on a return var
+            match left.as_ref() {
+                Expression::MemberAccess(_, base, _) => {
+                    if let Expression::Variable(var) = base.as_ref() {
+                        if return_vars.contains(&var.name) {
+                            member_access_vars.insert(var.name.clone());
+                        }
+                    }
+                }
+                Expression::ArraySubscript(_, array, _) => {
+                    if let Expression::Variable(var) = array.as_ref() {
+                        if return_vars.contains(&var.name) {
+                            member_access_vars.insert(var.name.clone());
+                        }
+                    }
+                }
+                _ => {}
+            }
+            check_expression_for_assignment_context(
+                right,
+                return_vars,
+                member_access_vars,
+                tuple_assigned_vars,
+                standalone_assigned_vars,
+                seen_vars,
+                in_nested_scope,
+            );
+        }
+        Expression::List(_, items) => {
+            // Check each item in a list/tuple expression
+            for (_, item) in items {
+                if let Some(param) = item {
+                    check_expression_for_assignment_context(
+                        &param.ty,
+                        return_vars,
+                        member_access_vars,
+                        tuple_assigned_vars,
+                        standalone_assigned_vars,
+                        seen_vars,
+                        in_nested_scope,
+                    );
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Check if a YUL block uses any of the given return variable names
 fn yul_block_uses_return_vars(yul: &CollectedYulBlock, return_vars: &HashSet<String>) -> bool {
     for stmt in &yul.statements {
@@ -227,16 +683,17 @@ fn yul_block_uses_return_vars(yul: &CollectedYulBlock, return_vars: &HashSet<Str
 /// Check if a YUL statement uses any return variable names
 fn yul_statement_uses_return_vars(stmt: &YulStatement, return_vars: &HashSet<String>) -> bool {
     match stmt {
-        YulStatement::Assign(_, vars, _) => {
+        YulStatement::Assign(_, vars, expr) => {
+            // Check LHS variables
             for var in vars {
-                // vars are YulExpression - check if it's a variable
                 if let YulExpression::Variable(id) = var {
                     if return_vars.contains(&id.name) {
                         return true;
                     }
                 }
             }
-            false
+            // Check RHS expression
+            yul_expression_uses_return_vars(expr, return_vars)
         }
         YulStatement::Block(block) => {
             for s in &block.statements {
@@ -246,8 +703,107 @@ fn yul_statement_uses_return_vars(stmt: &YulStatement, return_vars: &HashSet<Str
             }
             false
         }
+        YulStatement::FunctionCall(call) => {
+            // Check function call arguments (e.g., mstore(result, value))
+            yul_function_call_uses_return_vars(call, return_vars)
+        }
+        YulStatement::For(for_stmt) => {
+            // Check init block
+            for s in &for_stmt.init_block.statements {
+                if yul_statement_uses_return_vars(s, return_vars) {
+                    return true;
+                }
+            }
+            // Check condition
+            if yul_expression_uses_return_vars(&for_stmt.condition, return_vars) {
+                return true;
+            }
+            // Check post block
+            for s in &for_stmt.post_block.statements {
+                if yul_statement_uses_return_vars(s, return_vars) {
+                    return true;
+                }
+            }
+            // Check body
+            for s in &for_stmt.execution_block.statements {
+                if yul_statement_uses_return_vars(s, return_vars) {
+                    return true;
+                }
+            }
+            false
+        }
+        YulStatement::If(_, cond, block) => {
+            if yul_expression_uses_return_vars(cond, return_vars) {
+                return true;
+            }
+            for s in &block.statements {
+                if yul_statement_uses_return_vars(s, return_vars) {
+                    return true;
+                }
+            }
+            false
+        }
+        YulStatement::Switch(switch) => {
+            if yul_expression_uses_return_vars(&switch.condition, return_vars) {
+                return true;
+            }
+            for case in &switch.cases {
+                if let YulSwitchOptions::Case(_, _, block) = case {
+                    for s in &block.statements {
+                        if yul_statement_uses_return_vars(s, return_vars) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            if let Some(default) = &switch.default {
+                if let YulSwitchOptions::Default(_, block) = default {
+                    for s in &block.statements {
+                        if yul_statement_uses_return_vars(s, return_vars) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            false
+        }
+        YulStatement::VariableDeclaration(_, _vars, init) => {
+            // Variable declarations create new bindings, but check the initializer
+            // YulTypedIdentifier doesn't have an initializer per-var, only one shared init
+            if let Some(expr) = init {
+                if yul_expression_uses_return_vars(expr, return_vars) {
+                    return true;
+                }
+            }
+            false
+        }
         _ => false,
     }
+}
+
+/// Check if a YUL expression uses any return variable names
+fn yul_expression_uses_return_vars(expr: &YulExpression, return_vars: &HashSet<String>) -> bool {
+    match expr {
+        YulExpression::Variable(id) => return_vars.contains(&id.name),
+        YulExpression::FunctionCall(call) => yul_function_call_uses_return_vars(call, return_vars),
+        YulExpression::SuffixAccess(_, base, _) => {
+            yul_expression_uses_return_vars(base, return_vars)
+        }
+        _ => false,
+    }
+}
+
+/// Check if a YUL function call uses any return variable names in its arguments
+fn yul_function_call_uses_return_vars(
+    call: &YulFunctionCall,
+    return_vars: &HashSet<String>,
+) -> bool {
+    for arg in &call.arguments {
+        if yul_expression_uses_return_vars(arg, return_vars) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Generate IR for a variable declaration from a return parameter
@@ -345,6 +901,9 @@ fn build_function_natspec_ir(
                 if is_variable_name && !rest.is_empty() {
                     // First word was a variable name, use only the description
                     return_docs.push(format!("@return _ {}", rest));
+                } else if is_variable_name && rest.is_empty() {
+                    // First word is just a variable name with no description - skip it
+                    // The auto-generated @return _ TODO will be added later
                 } else {
                     // First word is part of description (uppercase/article), keep it
                     return_docs.push(format!("@return _ {}", return_content));
@@ -603,7 +1162,9 @@ pub fn build_function_ir(func: &CollectedFunction) -> Vec<IRElement> {
 
                         // Extract lines, handling continuation
                         for line in inner.lines() {
+                            // Strip leading asterisk (common in block comments like " * text")
                             let trimmed = line.trim();
+                            let trimmed = trimmed.strip_prefix("*").map(|s| s.trim()).unwrap_or(trimmed);
                             if trimmed.starts_with("@") {
                                 // New tag - push previous line if any
                                 if !current_line.is_empty() {
@@ -628,7 +1189,9 @@ pub fn build_function_ir(func: &CollectedFunction) -> Vec<IRElement> {
                         // DocBlock without @ tags - treat as description-only
                         // Collect all non-empty lines as description
                         for line in inner.lines() {
+                            // Strip leading asterisk (common in block comments like " * text")
                             let trimmed = line.trim();
+                            let trimmed = trimmed.strip_prefix("*").map(|s| s.trim()).unwrap_or(trimmed);
                             if !trimmed.is_empty() {
                                 if !current_line.is_empty() {
                                     current_line.push(' ');
@@ -992,13 +1555,42 @@ fn build_function_definition(func: &CollectedFunction) -> Vec<IRElement> {
             &func.body_statements
         };
 
-        // Add blank line after opening brace if the first statement has leading comments
+        // Check if return variables need explicit declarations at the top.
+        // This includes vars used via member access (e.g., `lhs.x = value`),
+        // assigned only in tuple context (e.g., `(a, x) = ...`), or index access.
+        // If ANY return var needs pre-declaration, declare ALL of them for consistency.
+        let mut declared_all_return_vars = false;
+        let vars_needing_declaration = find_return_vars_needing_declaration(stmts_to_process, &return_vars);
+        // Check if first statement has leading comments (for blank line placement)
         let first_has_comments = stmts_to_process
             .first()
             .map(|s| !s.leading_comments.is_empty())
             .unwrap_or(false);
-        if first_has_comments {
-            ir.push(IRElement::HardLineBreak);
+
+        if !vars_needing_declaration.is_empty() {
+            // Declare ALL return vars (for consistency, since they all need to be returned)
+            // Iterate in original return order (not HashMap order)
+            for (_, ret) in &func.definition.element.returns {
+                if let Some(r) = ret {
+                    if let Some(name) = &r.name {
+                        if let Some(info) = return_var_info.get(&name.name) {
+                            body_ir.extend(build_return_var_declaration(info));
+                            body_ir.push(IRElement::HardLineBreak);
+                            // Mark as declared so subsequent assignments don't add type
+                            declared_return_vars.insert(name.name.clone());
+                        }
+                    }
+                }
+            }
+            // Add blank line after declarations if first statement has leading comments
+            if first_has_comments {
+                body_ir.push(IRElement::HardLineBreak);
+            }
+            // All return vars are now declared, we need explicit return
+            declared_all_return_vars = true;
+        } else if first_has_comments {
+            // No declarations added, but first statement has comments - add blank line
+            body_ir.push(IRElement::HardLineBreak);
         }
 
         for (i, stmt) in stmts_to_process.iter().enumerate() {
@@ -1028,9 +1620,12 @@ fn build_function_definition(func: &CollectedFunction) -> Vec<IRElement> {
                         body_ir.extend(build_leading_comments(&stmt.leading_comments));
 
                         // Emit variable declarations for used return vars
+                        // (only if not already pre-declared at function top)
                         for var_name in &return_vars {
                             if let Some(info) = return_var_info.get(var_name) {
-                                if !used_in_assembly.contains(var_name) {
+                                if !used_in_assembly.contains(var_name)
+                                    && !declared_return_vars.contains(var_name)
+                                {
                                     body_ir.extend(build_return_var_declaration(info));
                                     body_ir.push(IRElement::HardLineBreak);
                                     used_in_assembly.insert(var_name.clone());
@@ -1079,8 +1674,46 @@ fn build_function_definition(func: &CollectedFunction) -> Vec<IRElement> {
             body_ir.push(IRElement::text("return "));
             body_ir.push(IRElement::text(&return_exprs.join(", ")));
             body_ir.push(IRElement::text(";"));
+        } else if declared_all_return_vars {
+            // Add explicit return for all declared return vars, but only if the
+            // body doesn't already end with a return statement
+            let ends_with_return = stmts_to_process
+                .last()
+                .map(|s| matches!(&s.statement, Statement::Return(..)))
+                .unwrap_or(false);
+
+            if !ends_with_return {
+                body_ir.push(IRElement::HardLineBreak);
+
+                // Build return expression - maintain declaration order
+                let return_exprs: Vec<String> = func
+                    .definition
+                    .element
+                    .returns
+                    .iter()
+                    .filter_map(|(_, ret)| {
+                        ret.as_ref().and_then(|r| {
+                            r.name.as_ref().map(|name| {
+                                return_var_info
+                                    .get(&name.name)
+                                    .map(|info| info.output_name.clone())
+                                    .unwrap_or_else(|| normalize_param_name(&name.name))
+                            })
+                        })
+                    })
+                    .collect();
+
+                if return_exprs.len() == 1 {
+                    body_ir.push(IRElement::text(&format!("return {};", return_exprs[0])));
+                } else {
+                    body_ir.push(IRElement::text(&format!(
+                        "return ({});",
+                        return_exprs.join(", ")
+                    )));
+                }
+            }
         } else if !declared_return_vars.is_empty() {
-            // Add explicit return for declared return vars
+            // Add explicit return for declared return vars (single assignment case)
             body_ir.push(IRElement::HardLineBreak);
 
             // Build return expression - maintain declaration order and use normalized names

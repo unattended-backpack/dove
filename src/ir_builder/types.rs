@@ -201,17 +201,32 @@ fn parse_struct_comments_custom(comments: &[Comment]) -> (String, HashMap<String
 }
 
 /// Format NatSpec for structs using structured IR elements
+/// `inline_field_docs` contains documentation extracted from comments on struct fields
 fn format_struct_natspec_ir(
     all_comments: &[Comment],
     _struct_name: &str,
     struct_fields: &[StructField],
+    inline_field_docs: &HashMap<String, String>,
 ) -> Vec<IRElement> {
     use crate::ir_builder::text_with_word_breaks;
 
     let mut ir = vec![];
 
-    // Parse comments with custom handling
-    let (description, field_docs) = parse_struct_comments_custom(&all_comments);
+    // Parse comments with custom handling (from struct-level comments)
+    let (description, mut field_docs) = parse_struct_comments_custom(&all_comments);
+
+    // Merge inline field docs - inline docs take precedence if struct-level has none
+    // If both exist, combine them (struct-level @param first, then inline)
+    for (field_name, inline_doc) in inline_field_docs {
+        if let Some(existing) = field_docs.get_mut(field_name) {
+            // Combine: existing @param doc + inline comment
+            existing.push(' ');
+            existing.push_str(inline_doc);
+        } else {
+            // No struct-level doc, use inline
+            field_docs.insert(field_name.clone(), inline_doc.clone());
+        }
+    }
 
     ir.push(IRElement::text("/**"));
 
@@ -535,6 +550,30 @@ fn generate_enum_natspec(enum_def: &CollectedEnum) -> Vec<IRElement> {
     ir
 }
 
+/// Extract text content from a comment, stripping comment markers
+fn extract_comment_text(comment: &Comment) -> String {
+    let text = match comment {
+        Comment::Line(_, t) | Comment::Block(_, t) | Comment::DocLine(_, t) | Comment::DocBlock(_, t) => t,
+    };
+    let trimmed = text.trim();
+    // Strip comment markers
+    if trimmed.starts_with("///") {
+        trimmed.strip_prefix("///").unwrap_or("").trim().to_string()
+    } else if trimmed.starts_with("//") {
+        trimmed.strip_prefix("//").unwrap_or("").trim().to_string()
+    } else if trimmed.starts_with("/*") && trimmed.ends_with("*/") {
+        trimmed.strip_prefix("/*").unwrap_or("")
+            .strip_suffix("*/").unwrap_or("")
+            .trim()
+            .lines()
+            .map(|l| l.trim().strip_prefix("*").unwrap_or(l.trim()).trim())
+            .collect::<Vec<_>>()
+            .join(" ")
+    } else {
+        trimmed.to_string()
+    }
+}
+
 /// Build IR for a struct definition
 pub fn build_struct_ir(struct_def: &CollectedStruct) -> Vec<IRElement> {
     let mut ir = vec![];
@@ -543,6 +582,37 @@ pub fn build_struct_ir(struct_def: &CollectedStruct) -> Vec<IRElement> {
     let mut all_comments = Vec::new();
     all_comments.extend(struct_def.definition.leading_comments.clone());
     all_comments.extend(struct_def.definition.trailing_comments.clone());
+
+    // Extract inline field comments (leading and trailing comments on struct fields)
+    let mut inline_field_docs: HashMap<String, String> = HashMap::new();
+    for field in &struct_def.fields {
+        let field_name = field.element.name.as_ref().map(|n| n.name.clone()).unwrap_or_default();
+        if field_name.is_empty() {
+            continue;
+        }
+
+        let mut parts = Vec::new();
+
+        // Leading comments on this field
+        for comment in &field.leading_comments {
+            let text = extract_comment_text(comment);
+            if !text.is_empty() {
+                parts.push(text);
+            }
+        }
+
+        // Trailing comments on this field
+        for comment in &field.trailing_comments {
+            let text = extract_comment_text(comment);
+            if !text.is_empty() {
+                parts.push(text);
+            }
+        }
+
+        if !parts.is_empty() {
+            inline_field_docs.insert(field_name, parts.join(" "));
+        }
+    }
 
     // Extract field information for NatSpec
     let struct_fields: Vec<StructField> = struct_def
@@ -572,8 +642,8 @@ pub fn build_struct_ir(struct_def: &CollectedStruct) -> Vec<IRElement> {
         .name
         .clone();
 
-    // Generate or format NatSpec with structured IR
-    let natspec_ir = format_struct_natspec_ir(&all_comments, &struct_name, &struct_fields);
+    // Generate or format NatSpec with structured IR, including inline field docs
+    let natspec_ir = format_struct_natspec_ir(&all_comments, &struct_name, &struct_fields, &inline_field_docs);
 
     // Add the formatted NatSpec elements
     ir.extend(natspec_ir);

@@ -19,6 +19,47 @@ import { PrivateTransferVerifier } from
 */
 contract MockERC7739Signer {
 
+  /// TODO
+  uint256 constant NUMBER_OF_SUBRELATIONS = 28;
+
+  /*
+    Powers of alpha used to batch subrelations (alpha, alpha^2, ...,
+    alpha^(NUM_SUBRELATIONS-1))
+  */
+  uint256 constant NUMBER_OF_ALPHAS = NUMBER_OF_SUBRELATIONS - 1;
+
+  /// TODO
+  uint256 constant CONST_PROOF_SIZE_LOG_N = 28;
+
+  /**
+    ZKTranscript library to generate fiat shamir challenges, the ZK transcript
+    only differest forge-lint: disable-next-item(pascal-case-struct)
+
+    @param relationParameters Oink test
+    @param alphas Powers of alpha: [alpha, alpha^2, ...,
+      alpha^(NUM_SUBRELATIONS-1)]
+    @param gateChallenges TODO
+    @param libraChallenge Sumcheck
+    @param sumCheckUChallenges TODO
+    @param rho Shplemini
+    @param geminiR first second third
+    @param shplonkNu TODO
+    @param shplonkZ TODO
+    @param publicInputsDelta Derived
+  */
+  struct ZKTranscript {
+    Honk.RelationParameters relationParameters;
+    Fr[NUMBER_OF_ALPHAS] alphas;
+    Fr[CONST_PROOF_SIZE_LOG_N] gateChallenges;
+    Fr libraChallenge;
+    Fr[CONST_PROOF_SIZE_LOG_N] sumCheckUChallenges;
+    Fr rho;
+    Fr geminiR;
+    Fr shplonkNu;
+    Fr shplonkZ;
+    Fr publicInputsDelta;
+  }
+
   /// The ERC-1271 magic value returned when a signature is valid.
   bytes4 public constant ERC1271_MAGIC_VALUE = 0x1626ba7e;
 
@@ -33,6 +74,41 @@ contract MockERC7739Signer {
 
   /// The cached domain separator for this signer.
   bytes32 public immutable DOMAIN_SEPARATOR;
+
+  /// TODO
+  uint256 constant BATCHED_RELATION_PARTIAL_LENGTH = 8;
+
+  /// TODO
+  uint256 constant ZK_BATCHED_RELATION_PARTIAL_LENGTH = 9;
+
+  /// TODO
+  uint256 constant NUMBER_OF_ENTITIES = 41;
+
+  // The number of entities added for ZK (gemini_masking_poly)
+  uint256 constant NUM_MASKING_POLYNOMIALS = 1;
+
+  /// TODO
+  uint256 constant NUMBER_OF_ENTITIES_ZK =
+    NUMBER_OF_ENTITIES + NUM_MASKING_POLYNOMIALS;
+
+  /// TODO
+  uint256 constant NUMBER_UNSHIFTED = 36;
+
+  /// TODO
+  uint256 constant NUMBER_UNSHIFTED_ZK =
+    NUMBER_UNSHIFTED + NUM_MASKING_POLYNOMIALS;
+
+  /// TODO
+  uint256 constant NUMBER_TO_BE_SHIFTED = 5;
+
+  /// TODO
+  uint256 constant PAIRING_POINTS_SIZE = 16;
+
+  /// TODO
+  uint256 constant FIELD_ELEMENT_SIZE = 0x20;
+
+  /// TODO
+  uint256 constant GROUP_ELEMENT_SIZE = 0x40;
 
   /**
     Construct a new mock ERC-7739 signer with a designated owner.
@@ -470,6 +546,333 @@ contract MockERC7739Signer {
           // dirty 1/3
           _state3 := _t4
         }
+      }
+    }
+  }
+
+  /**
+    Convert the pairing points to G1 points. The pairing points are serialised
+    as an array of 68 bit limbs representing two points The lhs of a pairing
+    operation and the rhs of a pairing operation There are 4 fields for each
+    group element, leaving 8 fields for each side of the pairing.
+
+    @param _pairingPoints The pairing points to convert.
+
+    @return _ TODO
+  */
+  function convertPairingPointsToG1 (
+    Fr[PAIRING_POINTS_SIZE] memory _pairingPoints
+  ) pure returns (Honk.G1Point memory, Honk.G1Point memory) {
+    Honk.G1Point memory _lhsOutput;
+    Honk.G1Point memory _rhsOutput;
+    uint256 _lhsX = Fr.unwrap(_pairingPoints[0]);
+    _lhsX |= Fr.unwrap(_pairingPoints[1]) << 68;
+    _lhsX |= Fr.unwrap(_pairingPoints[2]) << 136;
+    _lhsX |= Fr.unwrap(_pairingPoints[3]) << 204;
+    _lhsOutput.x = _lhsX;
+    uint256 _lhsY = Fr.unwrap(_pairingPoints[4]);
+    _lhsY |= Fr.unwrap(_pairingPoints[5]) << 68;
+    _lhsY |= Fr.unwrap(_pairingPoints[6]) << 136;
+    _lhsY |= Fr.unwrap(_pairingPoints[7]) << 204;
+    _lhsOutput.y = _lhsY;
+    uint256 _rhsX = Fr.unwrap(_pairingPoints[8]);
+    _rhsX |= Fr.unwrap(_pairingPoints[9]) << 68;
+    _rhsX |= Fr.unwrap(_pairingPoints[10]) << 136;
+    _rhsX |= Fr.unwrap(_pairingPoints[11]) << 204;
+    _rhsOutput.x = _rhsX;
+    uint256 _rhsY = Fr.unwrap(_pairingPoints[12]);
+    _rhsY |= Fr.unwrap(_pairingPoints[13]) << 68;
+    _rhsY |= Fr.unwrap(_pairingPoints[14]) << 136;
+    _rhsY |= Fr.unwrap(_pairingPoints[15]) << 204;
+    _rhsOutput.y = _rhsY;
+    return (_lhsOutput, _rhsOutput);
+  }
+
+  /**
+    TODO
+
+    @param _proof TODO
+    @param _publicInputs TODO
+    @param _vkHash TODO
+    @param _publicInputsSize TODO
+    @param _logN TODO
+
+    @return _ TODO
+  */
+  function generateTranscript (
+    Honk.ZKProof memory _proof,
+    bytes32[] calldata _publicInputs,
+    uint256 _vkHash,
+    uint256 _publicInputsSize,
+    uint256 _logN
+  ) external pure returns (ZKTranscript memory) {
+    ZKTranscript memory _tOutput;
+    Fr _previousChallenge;
+    (_tOutput.relationParameters, _previousChallenge) =
+    generateRelationParametersChallenges(
+      _proof, _publicInputs, _vkHash, _publicInputsSize, _previousChallenge
+    );
+    (_tOutput.alphas, _previousChallenge) = generateAlphaChallenges(
+      _previousChallenge, _proof
+    );
+    (_tOutput.gateChallenges, _previousChallenge) = generateGateChallenges(
+      _previousChallenge, _logN
+    );
+    (_tOutput.libraChallenge, _previousChallenge) = generateLibraChallenge(
+      _previousChallenge, _proof
+    );
+    (_tOutput.sumCheckUChallenges, _previousChallenge) =
+    generateSumcheckChallenges(
+      _proof, _previousChallenge, _logN
+    );
+    (_tOutput.rho, _previousChallenge) = generateRhoChallenge(
+      _proof, _previousChallenge
+    );
+    (_tOutput.geminiR, _previousChallenge) = generateGeminiRChallenge(
+      _proof, _previousChallenge, _logN
+    );
+    (_tOutput.shplonkNu, _previousChallenge) = generateShplonkNuChallenge(
+      _proof, _previousChallenge, _logN
+    );
+    (_tOutput.shplonkZ, _previousChallenge) = generateShplonkZChallenge(
+      _proof, _previousChallenge
+    );
+    return _tOutput;
+  }
+
+  /**
+    TODO
+
+    @param _proof TODO
+    @param _publicInputs TODO
+    @param _vkHash TODO
+    @param _publicInputsSize TODO
+    @param _previousChallenge TODO
+
+    @return _ TODO
+  */
+  function generateRelationParametersChallenges (
+    Honk.ZKProof memory _proof,
+    bytes32[] calldata _publicInputs,
+    uint256 _vkHash,
+    uint256 _publicInputsSize,
+    Fr _previousChallenge
+  ) internal pure returns (Honk.RelationParameters memory, Fr) {
+    Honk.RelationParameters memory _rpOutput;
+    Fr _nextPreviousChallengeOutput;
+    (_rpOutput.eta, _rpOutput.etaTwo, _rpOutput.etaThree, _previousChallenge) =
+    generateEtaChallenge(
+      _proof, _publicInputs, _vkHash, _publicInputsSize
+    );
+    (_rpOutput.beta, _rpOutput.gamma, _nextPreviousChallengeOutput) =
+    generateBetaAndGammaChallenges(
+      _previousChallenge, _proof
+    );
+    return (_rpOutput, _nextPreviousChallengeOutput);
+  }
+
+  /**
+    Alpha challenges non-linearise the gate contributions
+
+    @param _previousChallenge TODO
+    @param _proof TODO
+
+    @return _ TODO
+  */
+  function generateAlphaChallenges (
+    Fr _previousChallenge,
+    Honk.ZKProof memory _proof
+  ) internal pure returns (Fr[NUMBER_OF_ALPHAS] memory, Fr) {
+    Fr[NUMBER_OF_ALPHAS] memory _alphasOutput;
+    Fr _nextPreviousChallengeOutput;
+
+    // Generate the original sumcheck alpha 0 by hashing zPerm and zLookup
+    uint256[5] memory _alpha0;
+    _alpha0[0] = Fr.unwrap(_previousChallenge);
+    _alpha0[1] = _proof.lookupInverses.x;
+    _alpha0[2] = _proof.lookupInverses.y;
+    _alpha0[3] = _proof.zPerm.x;
+    _alpha0[4] = _proof.zPerm.y;
+    _nextPreviousChallengeOutput = FrLib.fromBytes32(
+      keccak256(abi.encodePacked(_alpha0))
+    );
+    Fr _alpha;
+    (_alpha, ) = splitChallenge(_nextPreviousChallengeOutput);
+
+    // Compute powers of alpha for batching subrelations
+    _alphasOutput[0] = _alpha;
+    for (uint256 i = 1; i < NUMBER_OF_ALPHAS; i++) {
+      _alphasOutput[i] = _alphasOutput[i - 1] * _alpha;
+    }
+    return (_alphasOutput, _nextPreviousChallengeOutput);
+  }
+
+  /**
+    Return the new target sum for the next sumcheck round
+
+    @param _roundUnivariates TODO
+    @param _roundChallenge TODO
+
+    @return _ TODO
+  */
+  function computeNextTargetSum (
+    Fr[ZK_BATCHED_RELATION_PARTIAL_LENGTH] memory _roundUnivariates,
+    Fr _roundChallenge
+  ) internal view returns (Fr) {
+    Fr _targetSumOutput;
+    Fr[ZK_BATCHED_RELATION_PARTIAL_LENGTH] memory
+    _BARYCENTRIC_LAGRANGE_DENOMINATORS =
+      [Fr.wrap(
+        0x0000000000000000000000000000000000000000000000000000000000009d80
+      ),
+      Fr.wrap(
+        0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593efffec51
+      ),
+      Fr.wrap(
+        0x00000000000000000000000000000000000000000000000000000000000005a0
+      ),
+      Fr.wrap(
+        0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593effffd31
+      ),
+      Fr.wrap(
+        0x0000000000000000000000000000000000000000000000000000000000000240
+      ),
+      Fr.wrap(
+        0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593effffd31
+      ),
+      Fr.wrap(
+        0x00000000000000000000000000000000000000000000000000000000000005a0
+      ),
+      Fr.wrap(
+        0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593efffec51
+      ),
+      Fr.wrap(
+        0x0000000000000000000000000000000000000000000000000000000000009d80
+      )];
+
+    // Performing Barycentric evaluations Compute B(x)
+    Fr _numeratorValue = Fr.wrap(1);
+    for (uint256 i = 0; i < ZK_BATCHED_RELATION_PARTIAL_LENGTH; ++i) {
+      _numeratorValue = _numeratorValue * (_roundChallenge - Fr.wrap(i));
+    }
+    Fr[ZK_BATCHED_RELATION_PARTIAL_LENGTH] memory _denominatorInverses;
+    for (uint256 i = 0; i < ZK_BATCHED_RELATION_PARTIAL_LENGTH; ++i) {
+      _denominatorInverses[i] = FrLib.invert(
+        _BARYCENTRIC_LAGRANGE_DENOMINATORS[i] * (_roundChallenge - Fr.wrap(i))
+      );
+    }
+    for (uint256 i = 0; i < ZK_BATCHED_RELATION_PARTIAL_LENGTH; ++i) {
+      _targetSumOutput = _targetSumOutput + _roundUnivariates[i] *
+      _denominatorInverses[i];
+    }
+
+    // Scale the sum by the value of B(x)
+    _targetSumOutput = _targetSumOutput * _numeratorValue;
+    return _targetSumOutput;
+  }
+
+  /**
+    This implementation is the same as above with different constants
+
+    @param _base TODO
+    @param _scalars TODO
+
+    @return _ TODO
+  */
+  function batchMul (
+    Honk.G1Point[] memory _base,
+    Fr[] memory _scalars
+  ) internal view returns (Honk.G1Point memory) {
+    Honk.G1Point memory _resultOutput;
+    uint256 _limit = $MSMSize;
+
+    // Validate all points are on the curve
+    for (uint256 i = 0; i < _limit; ++i) {
+      validateOnCurve(_base[i]);
+    }
+    bool _success = true;
+    assembly {
+      let _free := mload(0x40)
+      let _count := 0x01
+      for {} lt(_count, add(_limit, 1)) {
+        _count := add(_count, 1)
+      } {
+
+        // Get loop offsets
+        let _base_base := add(_base, mul(_count, 0x20))
+        let _scalar_base := add(_scalars, mul(_count, 0x20))
+        mstore(add(_free, 0x40), mload(mload(_base_base)))
+        mstore(add(_free, 0x60), mload(add(0x20, mload(_base_base))))
+
+        // Add scalar
+        mstore(add(_free, 0x80), mload(_scalar_base))
+        _success := and(
+          _success,
+          staticcall(gas(), 7, add(_free, 0x40), 0x60, add(_free, 0x40), 0x40)
+        )
+
+        // accumulator = accumulator + accumulator_2
+        _success := and(
+          _success, staticcall(gas(), 6, _free, 0x80, _free, 0x40)
+        )
+      }
+
+      // Return the result
+      mstore(_resultOutput, mload(_free))
+      mstore(add(_resultOutput, 0x20), mload(add(_free, 0x20)))
+    }
+    if (!_success) {
+      revert ShpleminiFailed();
+    }
+    return _resultOutput;
+  }
+
+  /**
+    Update the commitment tree during a remint. This inserts the balance leaf
+    (if new) and all account note hashes. When `tx.origin` is the recipient,
+    only the account note hashes are inserted since EOAs cannot ever be burn
+    addresses.
+
+    @param _to The recipient whose balance changed.
+    @param _newBalance The recipient's new balance.
+    @param _accountNoteHashes The account note commitments to insert.
+  */
+  function _updateBalanceInTree (
+    address _to,
+    uint256 _newBalance,
+    uint256[] memory _accountNoteHashes
+  ) internal {
+
+    // Only insert account note hashes.
+    if (tx.origin == _to) {
+      if (_accountNoteHashes.length == 1) {
+        _insertInTree(_accountNoteHashes[0]);
+      } else {
+        _insertManyInTree(_accountNoteHashes);
+      }
+    } else {
+      uint256 _balanceLeaf = _hashBalanceLeaf(_to, _newBalance);
+
+      // Balance leaf already exists, just insert account note hashes.
+      if (tree.has(_balanceLeaf)) {
+        if (_accountNoteHashes.length == 1) {
+          _insertInTree(_accountNoteHashes[0]);
+        } else {
+          _insertManyInTree(_accountNoteHashes);
+        }
+      } else {
+
+        // Batch insert: [balanceLeaf, noteHash0, noteHash1, ...].
+        uint256[] memory _leaves =
+          new uint256[](_accountNoteHashes.length + 1);
+        _leaves[0] = _balanceLeaf;
+        for (uint256 i = 0; i < _accountNoteHashes.length; ) {
+          _leaves[i + 1] = _accountNoteHashes[i];
+          unchecked {
+            ++i;
+          }
+        }
+        _insertManyInTree(_leaves);
       }
     }
   }
