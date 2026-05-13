@@ -694,32 +694,46 @@ fn build_for_ir_full(
 
     ir.push(IRElement::text(") "));
 
-    // Body - use collected nested statements if available
-    if let Some(nested) = nested_statements {
-        // Format as a block with the collected statements
-        let mut block_ir = vec![IRElement::text("{")];
+    // Body - use collected nested statements only when the body is actually a block.
+    // A single-statement body (e.g. `for (...) acc += i;`) is not a Block: the collector
+    // returns Some(empty_vec), so unconditionally taking the nested-statements path
+    // would erase the body. Match `if`'s behavior and wrap non-block bodies in braces.
+    match body {
+        Some(Statement::Block { .. }) => {
+            if let Some(nested) = nested_statements {
+                let mut block_ir = vec![IRElement::text("{")];
 
-        if !nested.is_empty() {
-            for stmt in nested.iter() {
-                block_ir.push(IRElement::HardLineBreak);
+                if !nested.is_empty() {
+                    for stmt in nested.iter() {
+                        block_ir.push(IRElement::HardLineBreak);
 
-                // Add blank line before statements with leading comments
-                if !stmt.leading_comments.is_empty() {
+                        if !stmt.leading_comments.is_empty() {
+                            block_ir.push(IRElement::HardLineBreak);
+                        }
+
+                        let stmt_ir = build_statement_ir_full(stmt, renames, return_ctx);
+                        block_ir.push(IRElement::indent(stmt_ir));
+                    }
                     block_ir.push(IRElement::HardLineBreak);
                 }
 
-                let stmt_ir = build_statement_ir_full(stmt, renames, return_ctx);
-                block_ir.push(IRElement::indent(stmt_ir));
+                block_ir.push(IRElement::text("}"));
+                ir.extend(block_ir);
+            } else {
+                ir.extend(format_statement_with_renames(body.unwrap(), renames));
             }
-            block_ir.push(IRElement::HardLineBreak);
         }
-
-        block_ir.push(IRElement::text("}"));
-        ir.extend(block_ir);
-    } else if let Some(body_stmt) = body {
-        ir.extend(format_statement_with_renames(body_stmt, renames));
-    } else {
-        ir.push(IRElement::text(";"));
+        Some(body_stmt) => {
+            let mut block_ir = vec![IRElement::text("{"), IRElement::HardLineBreak];
+            let stmt_ir = format_statement_full(body_stmt, renames, return_ctx);
+            block_ir.push(IRElement::indent(stmt_ir));
+            block_ir.push(IRElement::HardLineBreak);
+            block_ir.push(IRElement::text("}"));
+            ir.extend(block_ir);
+        }
+        None => {
+            ir.push(IRElement::text(";"));
+        }
     }
 
     ir
@@ -907,10 +921,25 @@ fn format_try_with_renames(
     // Wrap the header in a Group so the fit check considers expr + returns together
     ir.push(IRElement::group(header_elements));
 
+    // The returns clause introduces bindings whose names get normalized with a
+    // leading underscore by format_parameter. Mirror those renames so references
+    // inside the try body resolve to the normalized identifier.
+    let try_renames =
+        crate::ir_builder::expressions::build_param_rename_map(returns);
+    for (k, v) in &try_renames {
+        renames.insert(k.clone(), v.clone());
+    }
+
     // Try block body
     if let Some(body_stmt) = body {
         ir.push(IRElement::text(" "));
         ir.extend(format_statement_with_renames(body_stmt, renames));
+    }
+
+    // Remove the try-returns renames so they do not leak into catch clauses
+    // or subsequent statements.
+    for k in try_renames.keys() {
+        renames.remove(k);
     }
 
     // Catch clauses
