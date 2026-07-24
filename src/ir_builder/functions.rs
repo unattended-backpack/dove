@@ -151,6 +151,23 @@ fn count_usages_in_expression(expr: &Expression, counts: &mut HashMap<String, us
             count_usages_in_expression(left, counts);
             count_usages_in_expression(right, counts);
         }
+        Expression::AssignOr(_, left, right)
+        | Expression::AssignAnd(_, left, right)
+        | Expression::AssignXor(_, left, right)
+        | Expression::AssignShiftLeft(_, left, right)
+        | Expression::AssignShiftRight(_, left, right)
+        | Expression::AssignAdd(_, left, right)
+        | Expression::AssignSubtract(_, left, right)
+        | Expression::AssignMultiply(_, left, right)
+        | Expression::AssignDivide(_, left, right)
+        | Expression::AssignModulo(_, left, right) => {
+            // A compound assignment both reads and writes its target, so the
+            // left side counts twice: its variable can never be a single-use
+            // return variable eligible for conversion to a direct return.
+            count_usages_in_expression(left, counts);
+            count_usages_in_expression(left, counts);
+            count_usages_in_expression(right, counts);
+        }
         Expression::ArraySubscript(_, array, index) => {
             count_usages_in_expression(array, counts);
             if let Some(idx) = index {
@@ -211,6 +228,44 @@ fn count_usages_in_expression(expr: &Expression, counts: &mut HashMap<String, us
             }
         }
         _ => {}
+    }
+}
+
+/// Check whether the last top-level statement's tail chain contains a plain
+/// assignment to `var`. The tail chain descends through the final statement
+/// of bare and unchecked blocks and through both branches of a trailing
+/// if/else; loop bodies are never part of it, since their statements can
+/// execute more than once and resume looping afterwards.
+///
+/// A single-use return-variable assignment may only be rewritten into a
+/// direct `return` when it lies on this chain: there, the rewrite terminates
+/// exactly where the original function would have fallen off the end.
+/// Anywhere else, the rewrite would skip the statements that follow the
+/// assignment.
+fn assignment_is_in_tail_position(statements: &[CommentedStatement], var: &str) -> bool {
+    statements
+        .last()
+        .map(|stmt| raw_tail_contains_assignment(&stmt.statement, var))
+        .unwrap_or(false)
+}
+
+fn raw_tail_contains_assignment(stmt: &Statement, var: &str) -> bool {
+    match stmt {
+        Statement::Expression(_, Expression::Assign(_, left, _)) => {
+            matches!(left.as_ref(), Expression::Variable(v) if v.name == var)
+        }
+        Statement::Block { statements, .. } => statements
+            .last()
+            .map(|s| raw_tail_contains_assignment(s, var))
+            .unwrap_or(false),
+        Statement::If(_, _, then_stmt, else_stmt) => {
+            raw_tail_contains_assignment(then_stmt, var)
+                || else_stmt
+                    .as_deref()
+                    .map(|s| raw_tail_contains_assignment(s, var))
+                    .unwrap_or(false)
+        }
+        _ => false,
     }
 }
 
@@ -446,6 +501,9 @@ fn check_statement_for_assignment_context(
             );
         }
         Statement::Block { statements, .. } => {
+            // A bare or unchecked block introduces a nested lexical scope: a
+            // declaration created inside it would be invisible to statements
+            // after the block, so first assignments here need pre-declaration.
             for s in statements {
                 check_statement_for_assignment_context(
                     s,
@@ -454,7 +512,7 @@ fn check_statement_for_assignment_context(
                     tuple_assigned_vars,
                     standalone_first_vars,
                     seen_vars,
-                    in_nested_scope,
+                    true,
                 );
             }
         }
@@ -636,6 +694,15 @@ fn check_expression_for_assignment_context(
                         if return_vars.contains(&var.name) {
                             member_access_vars.insert(var.name.clone());
                         }
+                    }
+                }
+                Expression::Variable(var) => {
+                    // A compound assignment reads its target before writing
+                    // it, so a first assignment of this form can never become
+                    // the variable's declaration: it must be pre-declared.
+                    if return_vars.contains(&var.name) && !seen_vars.contains(&var.name) {
+                        seen_vars.insert(var.name.clone());
+                        tuple_assigned_vars.insert(var.name.clone());
                     }
                 }
                 _ => {}
@@ -1507,7 +1574,7 @@ fn build_function_definition(func: &CollectedFunction) -> Vec<IRElement> {
     // Variables used only once (just the assignment) can use direct `return expr;`
     // BUT only if there's exactly one return variable (otherwise we need tuple return)
     let return_var_usage_counts = count_return_var_usages(&func.body_statements, &return_vars);
-    let single_assignment_vars: HashSet<String> = if return_vars.len() == 1 {
+    let mut single_assignment_vars: HashSet<String> = if return_vars.len() == 1 {
         return_var_usage_counts
             .iter()
             .filter(|(_, count)| **count == 1)
@@ -1555,12 +1622,24 @@ fn build_function_definition(func: &CollectedFunction) -> Vec<IRElement> {
             &func.body_statements
         };
 
+        // The direct-return rewrite of a single-use return variable is only
+        // sound where its assignment is the final action of the function:
+        // keep only tail-position assignment sites.
+        single_assignment_vars
+            .retain(|var| assignment_is_in_tail_position(stmts_to_process, var));
+
         // Check if return variables need explicit declarations at the top.
         // This includes vars used via member access (e.g., `lhs.x = value`),
         // assigned only in tuple context (e.g., `(a, x) = ...`), or index access.
         // If ANY return var needs pre-declaration, declare ALL of them for consistency.
         let mut declared_all_return_vars = false;
-        let vars_needing_declaration = find_return_vars_needing_declaration(stmts_to_process, &return_vars);
+        let mut vars_needing_declaration = find_return_vars_needing_declaration(stmts_to_process, &return_vars);
+
+        // A tail-position single-use assignment converts directly into a
+        // return statement, so its variable needs no declaration at all.
+        for var in &single_assignment_vars {
+            vars_needing_declaration.remove(var);
+        }
         // Check if first statement has leading comments (for blank line placement)
         let first_has_comments = stmts_to_process
             .first()
