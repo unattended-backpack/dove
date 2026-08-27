@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-VPL WITH AGPL-3.0-only
+// SPDX-License-Identifier: LicenseRef-(SEPPUKU WITH VPL) WITH AGPL-3.0-only
 pragma solidity 0.8.26;
 
 import { MockERC1271Signer } from "./MockERC1271Signer.sol";

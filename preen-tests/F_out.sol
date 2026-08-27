@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-VPL WITH AGPL-3.0-only
+// SPDX-License-Identifier: LicenseRef-(SEPPUKU WITH VPL) WITH AGPL-3.0-only
 pragma solidity ^0.8.25;
 
 import { ERC721A } from "ERC721A/ERC721A.sol";

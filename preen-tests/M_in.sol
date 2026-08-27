@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-VPL WITH AGPL-3.0-only
+// SPDX-License-Identifier: LicenseRef-(SEPPUKU WITH VPL) WITH AGPL-3.0-only
 pragma solidity 0.8.33;
 
 import { ITest20 } from "./interfaces/ITest20.sol";
@@ -25,6 +25,12 @@ error NoSignerCredentials ();
 contract Test20 is
   ITest20,
   ERC20 {
+
+  using LibString for address;
+  
+  using LibString for string;
+  
+  using LibString for uint256;
 
   /// A constant.
   uint128 constant AUCTION_SUPPLY = 500_000000_000000000000000000;

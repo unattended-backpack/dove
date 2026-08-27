@@ -453,12 +453,12 @@ fn build_contract_definition(contract: &CollectedContract) -> Vec<IRElement> {
 
         let mut first_element = true;
 
-        // Using directives
+        // Using directives; these are packed together with no blank lines
+        // between them or before the first one.
         for using in &contract.contents.using_directives {
             if !first_element {
                 body_ir.push(IRElement::HardLineBreak);
             }
-            body_ir.push(IRElement::HardLineBreak);
             body_ir.extend(build_using_directive_ir(using));
             first_element = false;
         }

@@ -192,56 +192,8 @@ pub fn build_ir(collected: &CollectedElements) -> Vec<IRElement> {
 
     let mut ir = Vec::new();
 
-    // Collect all comments from the source for SPDX header generation
-    let mut all_comments = Vec::new();
-
-    // Add standalone comments
-    all_comments.extend(ordered.standalone_comments.clone());
-
-    // Add comments from all commented elements
-    for pragma in &ordered.pragmas {
-        all_comments.extend(pragma.leading_comments.clone());
-        all_comments.extend(pragma.trailing_comments.clone());
-    }
-    for import in &ordered.imports {
-        all_comments.extend(import.leading_comments.clone());
-        all_comments.extend(import.trailing_comments.clone());
-    }
-    for using in &ordered.using_directives {
-        all_comments.extend(using.leading_comments.clone());
-        all_comments.extend(using.trailing_comments.clone());
-    }
-    for error in &ordered.errors {
-        all_comments.extend(error.definition.leading_comments.clone());
-        all_comments.extend(error.definition.trailing_comments.clone());
-    }
-    for type_def in &ordered.types {
-        all_comments.extend(type_def.leading_comments.clone());
-        all_comments.extend(type_def.trailing_comments.clone());
-    }
-    for enum_def in &ordered.enums {
-        all_comments.extend(enum_def.definition.leading_comments.clone());
-        all_comments.extend(enum_def.definition.trailing_comments.clone());
-    }
-    for struct_def in &ordered.structs {
-        all_comments.extend(struct_def.definition.leading_comments.clone());
-        all_comments.extend(struct_def.definition.trailing_comments.clone());
-    }
-    for var in &ordered.variables {
-        all_comments.extend(var.leading_comments.clone());
-        all_comments.extend(var.trailing_comments.clone());
-    }
-    for func in &ordered.functions {
-        all_comments.extend(func.definition.leading_comments.clone());
-        all_comments.extend(func.definition.trailing_comments.clone());
-    }
-    for contract in &ordered.contracts {
-        all_comments.extend(contract.definition.leading_comments.clone());
-        all_comments.extend(contract.definition.trailing_comments.clone());
-    }
-
     // Generate and add SPDX header as the first element
-    let spdx_header = generate_spdx_header(&all_comments);
+    let spdx_header = generate_spdx_header();
     ir.push(IRElement::text(spdx_header));
 
     // Add a single line break after SPDX header if there are other elements

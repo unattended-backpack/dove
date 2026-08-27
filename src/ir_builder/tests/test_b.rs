@@ -128,7 +128,7 @@ fn test_contract_b() {
 
     let expected = vec![
         // SPDX License
-        IRElement::text("// SPDX-License-Identifier: LicenseRef-VPL WITH AGPL-3.0-only"),
+        IRElement::text("// SPDX-License-Identifier: LicenseRef-(SEPPUKU WITH VPL) WITH AGPL-3.0-only"),
         IRElement::HardLineBreak,
         // Pragma
         IRElement::text("pragma"),
